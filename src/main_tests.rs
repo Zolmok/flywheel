@@ -228,3 +228,226 @@ fn spawn_and_capture_failed_exit_still_returns_output() {
         None => panic!("expected Some, got None"),
     }
 }
+
+// ── build_generate_tickets_prompt ───────────────────────────────────
+
+#[test]
+fn build_generate_tickets_prompt_contains_project_number() {
+    let config = Config {
+        project: 42,
+        owner: "acme".to_string(),
+        max_cycles: 0,
+        batch_size: 5,
+    };
+    let prompt = build_generate_tickets_prompt(&config);
+    assert!(
+        prompt.contains("42"),
+        "prompt should contain project number"
+    );
+}
+
+#[test]
+fn build_generate_tickets_prompt_contains_owner() {
+    let config = Config {
+        project: 42,
+        owner: "acme".to_string(),
+        max_cycles: 0,
+        batch_size: 5,
+    };
+    let prompt = build_generate_tickets_prompt(&config);
+    assert!(prompt.contains("acme"), "prompt should contain owner");
+}
+
+#[test]
+fn build_generate_tickets_prompt_contains_generate_tickets_skill() {
+    let config = Config {
+        project: 1,
+        owner: "org".to_string(),
+        max_cycles: 0,
+        batch_size: 5,
+    };
+    let prompt = build_generate_tickets_prompt(&config);
+    assert!(
+        prompt.contains("generate-tickets"),
+        "prompt should contain generate-tickets skill name"
+    );
+}
+
+// ── build_size_prioritize_prompt ────────────────────────────────────
+
+#[test]
+fn build_size_prioritize_prompt_contains_project_number() {
+    let config = Config {
+        project: 77,
+        owner: "widgets".to_string(),
+        max_cycles: 0,
+        batch_size: 5,
+    };
+    let prompt = build_size_prioritize_prompt(&config);
+    assert!(
+        prompt.contains("77"),
+        "prompt should contain project number"
+    );
+}
+
+#[test]
+fn build_size_prioritize_prompt_contains_owner() {
+    let config = Config {
+        project: 77,
+        owner: "widgets".to_string(),
+        max_cycles: 0,
+        batch_size: 5,
+    };
+    let prompt = build_size_prioritize_prompt(&config);
+    assert!(prompt.contains("widgets"), "prompt should contain owner");
+}
+
+// ── build_move_to_ready_prompt ──────────────────────────────────────
+
+#[test]
+fn build_move_to_ready_prompt_contains_project_number() {
+    let config = Config {
+        project: 55,
+        owner: "team".to_string(),
+        max_cycles: 0,
+        batch_size: 8,
+    };
+    let prompt = build_move_to_ready_prompt(&config);
+    assert!(
+        prompt.contains("55"),
+        "prompt should contain project number"
+    );
+}
+
+#[test]
+fn build_move_to_ready_prompt_contains_owner() {
+    let config = Config {
+        project: 55,
+        owner: "team".to_string(),
+        max_cycles: 0,
+        batch_size: 8,
+    };
+    let prompt = build_move_to_ready_prompt(&config);
+    assert!(prompt.contains("team"), "prompt should contain owner");
+}
+
+#[test]
+fn build_move_to_ready_prompt_contains_batch_size() {
+    let config = Config {
+        project: 55,
+        owner: "team".to_string(),
+        max_cycles: 0,
+        batch_size: 8,
+    };
+    let prompt = build_move_to_ready_prompt(&config);
+    assert!(prompt.contains("8"), "prompt should contain batch_size");
+}
+
+// ── build_implement_ticket_prompt ───────────────────────────────────
+
+#[test]
+fn build_implement_ticket_prompt_contains_project_number() {
+    let config = Config {
+        project: 33,
+        owner: "dev".to_string(),
+        max_cycles: 0,
+        batch_size: 5,
+    };
+    let prompt = build_implement_ticket_prompt(&config);
+    assert!(
+        prompt.contains("33"),
+        "prompt should contain project number"
+    );
+}
+
+#[test]
+fn build_implement_ticket_prompt_contains_owner() {
+    let config = Config {
+        project: 33,
+        owner: "dev".to_string(),
+        max_cycles: 0,
+        batch_size: 5,
+    };
+    let prompt = build_implement_ticket_prompt(&config);
+    assert!(prompt.contains("dev"), "prompt should contain owner");
+}
+
+#[test]
+fn build_implement_ticket_prompt_contains_implement_ticket_skill() {
+    let config = Config {
+        project: 1,
+        owner: "org".to_string(),
+        max_cycles: 0,
+        batch_size: 5,
+    };
+    let prompt = build_implement_ticket_prompt(&config);
+    assert!(
+        prompt.contains("implement-ticket"),
+        "prompt should contain implement-ticket skill name"
+    );
+}
+
+// ── parse_ready_items ───────────────────────────────────────────────
+
+#[test]
+fn parse_ready_items_returns_true_when_ready_item_exists() {
+    let json = r#"{"items":[{"status":"Ready","title":"Do something"}],"totalCount":1}"#;
+    assert!(parse_ready_items(json));
+}
+
+#[test]
+fn parse_ready_items_returns_true_with_mixed_statuses() {
+    let json = r#"{"items":[{"status":"Backlog","title":"A"},{"status":"Ready","title":"B"}],"totalCount":2}"#;
+    assert!(parse_ready_items(json));
+}
+
+#[test]
+fn parse_ready_items_returns_false_for_empty_items() {
+    let json = r#"{"items":[],"totalCount":0}"#;
+    assert!(!parse_ready_items(json));
+}
+
+#[test]
+fn parse_ready_items_returns_false_when_all_backlog() {
+    let json = r#"{"items":[{"status":"Backlog","title":"A"},{"status":"Backlog","title":"B"}],"totalCount":2}"#;
+    assert!(!parse_ready_items(json));
+}
+
+#[test]
+fn parse_ready_items_returns_false_for_malformed_json() {
+    let json = "not valid json at all";
+    assert!(!parse_ready_items(json));
+}
+
+#[test]
+fn parse_ready_items_returns_false_when_items_key_missing() {
+    let json = r#"{"totalCount":0}"#;
+    assert!(!parse_ready_items(json));
+}
+
+#[test]
+fn parse_ready_items_returns_false_when_status_key_missing() {
+    let json = r#"{"items":[{"title":"No status field"}],"totalCount":1}"#;
+    assert!(!parse_ready_items(json));
+}
+
+// ── run_phase: CheckReady variant ───────────────────────────────────
+
+#[test]
+fn run_phase_check_ready_returns_some_phase() {
+    // CheckReady calls check_ready_column which spawns `gh`, which will
+    // fail in a test environment (no auth / network). The spawn failure
+    // causes check_ready_column to return false, so run_phase should
+    // return Some(GenerateTickets) (the no-items path).
+    let config = Config {
+        project: 1,
+        owner: "test-owner".to_string(),
+        max_cycles: 0,
+        batch_size: 5,
+    };
+    let result = run_phase(&Phase::CheckReady, &config);
+    match result {
+        Some(phase) => assert_eq!(phase, Phase::GenerateTickets),
+        None => panic!("expected Some, got None"),
+    }
+}
