@@ -424,6 +424,13 @@ fn spawn_and_capture(label: &str, program: &str, args: &[&str]) -> Option<String
     }
 }
 
+fn print_phase_banner(phase: &Phase, cycle: u32) {
+    println!("=========================================");
+    println!("  Flywheel \u{2014} cycle {cycle}");
+    println!("  Phase: {phase}");
+    println!("=========================================");
+}
+
 fn main() {
     let cli = Cli::parse();
     let config = load_config(&cli);
@@ -462,14 +469,37 @@ fn main() {
         }
     });
 
-    let phase = Phase::GenerateTickets;
-    let second = next_phase(&phase, false);
+    let mut phase = Phase::GenerateTickets;
+    let mut cycle: u32 = 1;
 
-    println!(
-        "Flywheel configured: project={}, owner={}, max_cycles={}, batch_size={}",
-        config.project, config.owner, config.max_cycles, config.batch_size
-    );
-    println!("Starting at phase: {phase}, next: {second}");
+    loop {
+        print_phase_banner(&phase, cycle);
+
+        match run_phase(&phase, &config) {
+            None => {
+                eprintln!("=== Phase \"{}\" failed, stopping ===", phase);
+                break;
+            }
+            Some(next) => {
+                println!("--- {} complete, moving to {} ---", phase, next);
+
+                if phase == Phase::CheckReady && next == Phase::GenerateTickets {
+                    println!(
+                        "=== Cycle {} complete, starting cycle {} ===",
+                        cycle,
+                        cycle + 1
+                    );
+                    cycle += 1;
+                    if config.max_cycles > 0 && cycle > config.max_cycles {
+                        println!("=== Reached max cycles ({}) ===", config.max_cycles);
+                        break;
+                    }
+                }
+
+                phase = next;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
