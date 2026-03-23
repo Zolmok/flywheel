@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::HashMap;
 
 // ── merge_config: CLI flags produce correct Config ──────────────────
 
@@ -192,7 +193,7 @@ fn phase_display_check_ready() {
 
 #[test]
 fn spawn_and_capture_echo_returns_output() {
-    let result = spawn_and_capture("test", "echo", &["hello"]);
+    let result = spawn_and_capture("test", "echo", &["hello"], &HashMap::new());
     match result {
         Some(output) => assert_eq!(output, "hello\n"),
         None => panic!("expected Some, got None"),
@@ -201,13 +202,18 @@ fn spawn_and_capture_echo_returns_output() {
 
 #[test]
 fn spawn_and_capture_nonexistent_program_returns_none() {
-    let result = spawn_and_capture("test", "nonexistent_program_xyz", &[]);
+    let result = spawn_and_capture("test", "nonexistent_program_xyz", &[], &HashMap::new());
     assert!(result.is_none(), "expected None, got Some");
 }
 
 #[test]
 fn spawn_and_capture_captures_multiline_output() {
-    let result = spawn_and_capture("test", "printf", &["line1\nline2\nline3\n"]);
+    let result = spawn_and_capture(
+        "test",
+        "printf",
+        &["line1\nline2\nline3\n"],
+        &HashMap::new(),
+    );
     match result {
         Some(output) => {
             assert!(output.contains("line1"));
@@ -220,7 +226,12 @@ fn spawn_and_capture_captures_multiline_output() {
 
 #[test]
 fn spawn_and_capture_failed_exit_still_returns_output() {
-    let result = spawn_and_capture("test", "sh", &["-c", "echo output && exit 1"]);
+    let result = spawn_and_capture(
+        "test",
+        "sh",
+        &["-c", "echo output && exit 1"],
+        &HashMap::new(),
+    );
     match result {
         Some(output) => {
             assert!(output.contains("output"));
@@ -445,9 +456,50 @@ fn run_phase_check_ready_returns_some_phase() {
         max_cycles: 0,
         batch_size: 5,
     };
-    let result = run_phase(&Phase::CheckReady, &config);
+    let result = run_phase(&Phase::CheckReady, &config, &HashMap::new());
     match result {
         Some(phase) => assert_eq!(phase, Phase::GenerateTickets),
+        None => panic!("expected Some, got None"),
+    }
+}
+
+// ── load_direnv_env ─────────────────────────────────────────────────
+
+#[test]
+fn load_direnv_env_returns_hashmap() {
+    // In test environments direnv may or may not be installed, and there
+    // may or may not be a .envrc. Either way the function must return a
+    // HashMap without panicking.
+    let env = load_direnv_env();
+    // We can only assert the type is correct (HashMap) and it didn't panic.
+    // If direnv is not installed, the map will be empty.
+    let _ = env.len();
+}
+
+// ── spawn_and_capture: extra_env propagation ────────────────────────
+
+#[test]
+fn spawn_and_capture_propagates_extra_env() {
+    let mut env = HashMap::new();
+    env.insert(
+        "FLYWHEEL_TEST_VAR".to_string(),
+        "hello_from_direnv".to_string(),
+    );
+    let result = spawn_and_capture("test", "sh", &["-c", "echo $FLYWHEEL_TEST_VAR"], &env);
+    match result {
+        Some(output) => assert!(
+            output.contains("hello_from_direnv"),
+            "expected env var in output, got: {output}"
+        ),
+        None => panic!("expected Some, got None"),
+    }
+}
+
+#[test]
+fn spawn_and_capture_empty_extra_env_works() {
+    let result = spawn_and_capture("test", "echo", &["ok"], &HashMap::new());
+    match result {
+        Some(output) => assert!(output.contains("ok")),
         None => panic!("expected Some, got None"),
     }
 }
