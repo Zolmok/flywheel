@@ -1,5 +1,6 @@
 use clap::Parser;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read};
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio, exit};
@@ -158,6 +159,63 @@ fn load_config(cli: &Cli) -> Config {
     }
 }
 
+fn load_direnv_env() -> HashMap<String, String> {
+    let output = match Command::new("direnv")
+        .args(["export", "json"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+    {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("direnv not available: {e}");
+            return HashMap::new();
+        }
+    };
+
+    let stdout = match String::from_utf8(output.stdout) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("direnv output not valid UTF-8: {e}");
+            return HashMap::new();
+        }
+    };
+
+    if stdout.trim().is_empty() {
+        return HashMap::new();
+    }
+
+    let parsed: serde_json::Value = match serde_json::from_str(&stdout) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Failed to parse direnv JSON: {e}");
+            return HashMap::new();
+        }
+    };
+
+    let obj = match parsed.as_object() {
+        Some(o) => o,
+        None => {
+            eprintln!("direnv output is not a JSON object");
+            return HashMap::new();
+        }
+    };
+
+    let mut env = HashMap::new();
+    for (key, value) in obj {
+        match value.as_str() {
+            Some(v) => {
+                env.insert(key.clone(), v.to_string());
+            }
+            None => {
+                // null or non-string values are skipped (direnv uses null for unset)
+            }
+        }
+    }
+    env
+}
+
 fn build_generate_tickets_prompt(config: &Config) -> String {
     format!(
         "Use the Skill tool to invoke 'generate-tickets' with arguments \
@@ -246,7 +304,7 @@ fn parse_ready_items(json: &str) -> bool {
     }
 }
 
-fn check_ready_column(config: &Config) -> bool {
+fn check_ready_column(config: &Config, extra_env: &HashMap<String, String>) -> bool {
     let project_str = config.project.to_string();
     let output = spawn_and_capture(
         "check-ready",
@@ -260,6 +318,7 @@ fn check_ready_column(config: &Config) -> bool {
             "--format",
             "json",
         ],
+        extra_env,
     );
     match output {
         Some(json) => parse_ready_items(&json),
@@ -267,10 +326,10 @@ fn check_ready_column(config: &Config) -> bool {
     }
 }
 
-fn run_phase(phase: &Phase, config: &Config) -> Option<Phase> {
+fn run_phase(phase: &Phase, config: &Config, extra_env: &HashMap<String, String>) -> Option<Phase> {
     match phase {
         Phase::CheckReady => {
-            let has_items = check_ready_column(config);
+            let has_items = check_ready_column(config, extra_env);
             Some(next_phase(phase, has_items))
         }
         _ => {
@@ -285,15 +344,22 @@ fn run_phase(phase: &Phase, config: &Config) -> Option<Phase> {
                 &format!("{phase}"),
                 "claude",
                 &["-p", &prompt, "--dangerously-skip-permissions"],
+                extra_env,
             );
             result.map(|_| next_phase(phase, false))
         }
     }
 }
 
-fn spawn_and_capture(label: &str, program: &str, args: &[&str]) -> Option<String> {
+fn spawn_and_capture(
+    label: &str,
+    program: &str,
+    args: &[&str],
+    extra_env: &HashMap<String, String>,
+) -> Option<String> {
     let mut cmd = Command::new(program);
     cmd.args(args)
+        .envs(extra_env)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -434,6 +500,7 @@ fn print_phase_banner(phase: &Phase, cycle: u32) {
 fn main() {
     let cli = Cli::parse();
     let config = load_config(&cli);
+    let direnv_env = load_direnv_env();
 
     let _raw_mode = RawMode::enter();
 
@@ -475,7 +542,7 @@ fn main() {
     loop {
         print_phase_banner(&phase, cycle);
 
-        match run_phase(&phase, &config) {
+        match run_phase(&phase, &config, &direnv_env) {
             None => {
                 eprintln!("=== Phase \"{}\" failed, stopping ===", phase);
                 break;
