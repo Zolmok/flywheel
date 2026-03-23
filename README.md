@@ -46,6 +46,27 @@ file in the current directory. CLI flags override file values.
 Both `project` and `owner` must be provided via CLI flags or
 `.flywheel.json`. If either is missing, Flywheel exits with an error.
 
+### Environment: direnv and Claude profiles
+
+Flywheel automatically loads environment variables from `.envrc` via
+[direnv](https://direnv.net/) when present. This enables per-project
+configuration such as different Claude profiles or API keys.
+
+If `CLAUDE_PROFILE` is set (e.g., via `.envrc`), Flywheel resolves the
+profile directory, copies its `claude.json` to `~/.claude.json`, and sets
+`CLAUDE_CONFIG_DIR` for all spawned subprocesses. This replicates the
+behavior of the `claude` shell function wrapper so that the correct OAuth
+token and configuration are used.
+
+Example `.envrc`:
+
+```sh
+export CLAUDE_PROFILE=work
+```
+
+If direnv is not installed or no `.envrc` exists, Flywheel behaves normally
+using the inherited environment.
+
 ## Usage
 
 ```sh
