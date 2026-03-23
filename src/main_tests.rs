@@ -187,3 +187,44 @@ fn phase_display_implement_ticket() {
 fn phase_display_check_ready() {
     assert_eq!(format!("{}", Phase::CheckReady), "Check Ready");
 }
+
+// ── spawn_and_capture ────────────────────────────────────────────────
+
+#[test]
+fn spawn_and_capture_echo_returns_output() {
+    let result = spawn_and_capture("test", "echo", &["hello"]);
+    match result {
+        Some(output) => assert_eq!(output, "hello\n"),
+        None => panic!("expected Some, got None"),
+    }
+}
+
+#[test]
+fn spawn_and_capture_nonexistent_program_returns_none() {
+    let result = spawn_and_capture("test", "nonexistent_program_xyz", &[]);
+    assert!(result.is_none(), "expected None, got Some");
+}
+
+#[test]
+fn spawn_and_capture_captures_multiline_output() {
+    let result = spawn_and_capture("test", "printf", &["line1\nline2\nline3\n"]);
+    match result {
+        Some(output) => {
+            assert!(output.contains("line1"));
+            assert!(output.contains("line2"));
+            assert!(output.contains("line3"));
+        }
+        None => panic!("expected Some, got None"),
+    }
+}
+
+#[test]
+fn spawn_and_capture_failed_exit_still_returns_output() {
+    let result = spawn_and_capture("test", "sh", &["-c", "echo output && exit 1"]);
+    match result {
+        Some(output) => {
+            assert!(output.contains("output"));
+        }
+        None => panic!("expected Some, got None"),
+    }
+}
