@@ -158,6 +158,139 @@ fn load_config(cli: &Cli) -> Config {
     }
 }
 
+fn build_generate_tickets_prompt(config: &Config) -> String {
+    format!(
+        "Use the Skill tool to invoke 'generate-tickets' with arguments \
+         '--project {} --owner {}'. Output the complete report.",
+        config.project, config.owner
+    )
+}
+
+fn build_size_prioritize_prompt(config: &Config) -> String {
+    format!(
+        "You are managing a GitHub Project board. Examine all items in the \"Backlog\" \
+         column of project {} (owner: {}).\n\
+         \n\
+         For each item:\n\
+         1. Read the full issue body using `gh issue view <number>`\n\
+         2. Assess implementation complexity (small/medium/large)\n\
+         3. Add a size label: `size:small`, `size:medium`, or `size:large`\n\
+         4. Consider priority based on: severity of the problem, impact on users, \
+         and implementation complexity\n\
+         \n\
+         Then reorder the Backlog column so the highest-priority items are at the top. \
+         Use `gh project item-edit` to adjust item positions.\n\
+         \n\
+         Use these commands to interact with the board:\n\
+         - `gh project item-list {} --owner {} --format json`\n\
+         - `gh project field-list {} --owner {} --format json`\n\
+         - `gh project item-edit --project-id <ID> --id <ITEM_ID> --field-id <FIELD_ID> ...`\n\
+         \n\
+         Output a summary table: issue number, title, size, priority rationale.",
+        config.project, config.owner, config.project, config.owner, config.project, config.owner
+    )
+}
+
+fn build_move_to_ready_prompt(config: &Config) -> String {
+    format!(
+        "You are managing a GitHub Project board. Move the top {} items \
+         from the \"Backlog\" column to the \"Ready\" column in project {} \
+         (owner: {}).\n\
+         \n\
+         Steps:\n\
+         1. List items: `gh project item-list {} --owner {} --format json`\n\
+         2. Get field metadata: `gh project field-list {} --owner {} --format json`\n\
+         3. For each of the top {} Backlog items, change status to \"Ready\":\n\
+            `gh project item-edit --project-id <ID> --id <ITEM_ID> \
+         --field-id <STATUS_FIELD_ID> --single-select-option-id <READY_OPTION_ID>`\n\
+         \n\
+         If there are fewer than {} items in Backlog, move all of them.\n\
+         \n\
+         Output a summary of which items were moved.",
+        config.batch_size,
+        config.project,
+        config.owner,
+        config.project,
+        config.owner,
+        config.project,
+        config.owner,
+        config.batch_size,
+        config.batch_size
+    )
+}
+
+fn build_implement_ticket_prompt(config: &Config) -> String {
+    format!(
+        "Use the Skill tool to invoke 'implement-ticket' with arguments \
+         '--project {} --owner {}'. Output the complete report.",
+        config.project, config.owner
+    )
+}
+
+fn parse_ready_items(json: &str) -> bool {
+    match serde_json::from_str::<serde_json::Value>(json) {
+        Ok(value) => match value.get("items") {
+            Some(items) => match items.as_array() {
+                Some(arr) => arr.iter().any(|item| match item.get("status") {
+                    Some(status) => match status.as_str() {
+                        Some(s) => s == "Ready",
+                        None => false,
+                    },
+                    None => false,
+                }),
+                None => false,
+            },
+            None => false,
+        },
+        Err(_) => false,
+    }
+}
+
+fn check_ready_column(config: &Config) -> bool {
+    let project_str = config.project.to_string();
+    let output = spawn_and_capture(
+        "check-ready",
+        "gh",
+        &[
+            "project",
+            "item-list",
+            &project_str,
+            "--owner",
+            &config.owner,
+            "--format",
+            "json",
+        ],
+    );
+    match output {
+        Some(json) => parse_ready_items(&json),
+        None => false,
+    }
+}
+
+fn run_phase(phase: &Phase, config: &Config) -> Option<Phase> {
+    match phase {
+        Phase::CheckReady => {
+            let has_items = check_ready_column(config);
+            Some(next_phase(phase, has_items))
+        }
+        _ => {
+            let prompt = match phase {
+                Phase::GenerateTickets => build_generate_tickets_prompt(config),
+                Phase::SizePrioritize => build_size_prioritize_prompt(config),
+                Phase::MoveToReady => build_move_to_ready_prompt(config),
+                Phase::ImplementTicket => build_implement_ticket_prompt(config),
+                Phase::CheckReady => unreachable!(),
+            };
+            let result = spawn_and_capture(
+                &format!("{phase}"),
+                "claude",
+                &["-p", &prompt, "--dangerously-skip-permissions"],
+            );
+            result.map(|_| next_phase(phase, false))
+        }
+    }
+}
+
 fn spawn_and_capture(label: &str, program: &str, args: &[&str]) -> Option<String> {
     let mut cmd = Command::new(program);
     cmd.args(args)
