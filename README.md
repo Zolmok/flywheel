@@ -84,16 +84,21 @@ reached or an error occurs:
 
 ## Claude Code Slash Commands
 
-Flywheel delegates ticket generation and implementation to two Claude Code
-slash commands:
+Flywheel delegates work to three Claude Code slash commands. These must be
+installed in `~/.claude/commands/` (global) or `.claude/commands/`
+(per-project) for Flywheel to function. Full documentation for each:
 
-- **`/generate-tickets`** — scans the codebase and creates GitHub issues for
-  improvements, bugs, and missing features. Accepts `--project` and
-  `--owner` arguments.
+- **[`/generate-tickets`](docs/generate-tickets.md)** — scans the codebase,
+  identifies the 5 most important issues, and creates them on GitHub with
+  architecture context, implementation guides, and acceptance criteria.
 
-- **`/implement-ticket`** — picks the top ticket from the Ready column,
-  implements it, creates a PR, and moves the ticket through the board.
-  Accepts `--project` and `--owner` arguments.
+- **[`/generate-ticket`](docs/generate-ticket.md)** — takes a human-provided
+  idea and turns it into a fully fleshed out GitHub issue with codebase
+  analysis, reference implementations, and step-by-step approach.
+
+- **[`/implement-ticket`](docs/implement-ticket.md)** — picks the top Ready
+  ticket from the project board, implements it, writes tests, opens a PR,
+  and moves the ticket to "In Review".
 
 ## Development
 
