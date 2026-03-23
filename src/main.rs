@@ -216,6 +216,39 @@ fn load_direnv_env() -> HashMap<String, String> {
     env
 }
 
+fn resolve_claude_profile(env: &mut HashMap<String, String>) {
+    let profile = match env.get("CLAUDE_PROFILE") {
+        Some(p) => p.clone(),
+        None => match std::env::var("CLAUDE_PROFILE") {
+            Ok(p) => p,
+            Err(_) => return,
+        },
+    };
+
+    let home = match std::env::var("HOME") {
+        Ok(h) => h,
+        Err(_) => return,
+    };
+
+    let profile_dir = format!("{home}/.claude/profiles/{profile}");
+    let profile_path = std::path::Path::new(&profile_dir);
+    if !profile_path.is_dir() {
+        eprintln!("Claude profile directory not found: {profile_dir}");
+        return;
+    }
+
+    let src = format!("{profile_dir}/claude.json");
+    let dst = format!("{home}/.claude.json");
+    match std::fs::copy(&src, &dst) {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("Failed to copy {src} to {dst}: {e}");
+        }
+    }
+
+    env.insert("CLAUDE_CONFIG_DIR".to_string(), profile_dir);
+}
+
 fn build_generate_tickets_prompt(config: &Config) -> String {
     format!(
         "Use the Skill tool to invoke 'generate-tickets' with arguments \
@@ -363,10 +396,12 @@ fn spawn_and_capture(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    // New session so the child cannot open /dev/tty or affect our terminal
+    // New process group so we can kill the child tree on Ctrl-C, but stay
+    // in the same session so the child can still reach /dev/tty (needed for
+    // OAuth token refresh in claude).
     unsafe {
         cmd.pre_exec(|| {
-            if libc::setsid() == -1 {
+            if libc::setpgid(0, 0) == -1 {
                 return Err(std::io::Error::last_os_error());
             }
             Ok(())
@@ -500,7 +535,8 @@ fn print_phase_banner(phase: &Phase, cycle: u32) {
 fn main() {
     let cli = Cli::parse();
     let config = load_config(&cli);
-    let direnv_env = load_direnv_env();
+    let mut direnv_env = load_direnv_env();
+    resolve_claude_profile(&mut direnv_env);
 
     let _raw_mode = RawMode::enter();
 
