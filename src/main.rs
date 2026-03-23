@@ -363,10 +363,12 @@ fn spawn_and_capture(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    // New session so the child cannot open /dev/tty or affect our terminal
+    // New process group so we can kill the child tree on Ctrl-C, but stay
+    // in the same session so the child can still reach /dev/tty (needed for
+    // OAuth token refresh in claude).
     unsafe {
         cmd.pre_exec(|| {
-            if libc::setsid() == -1 {
+            if libc::setpgid(0, 0) == -1 {
                 return Err(std::io::Error::last_os_error());
             }
             Ok(())
