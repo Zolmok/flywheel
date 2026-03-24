@@ -461,6 +461,56 @@ fn count_ready_items_multiple_ready_items() {
     assert_eq!(count_ready_items(json), 2);
 }
 
+// ── parse_top_ready_ticket ──────────────────────────────────────────
+
+#[test]
+fn parse_top_ready_ticket_returns_first_ready_item() {
+    let json = r#"{"items":[
+        {"status":"Backlog","title":"A","content":{"number":1}},
+        {"status":"Ready","title":"First ready","content":{"number":42}},
+        {"status":"Ready","title":"Second ready","content":{"number":43}}
+    ],"totalCount":3}"#;
+    match parse_top_ready_ticket(json) {
+        Some(info) => {
+            assert_eq!(info.number, 42);
+            assert_eq!(info.title, "First ready");
+        }
+        None => panic!("expected Some, got None"),
+    }
+}
+
+#[test]
+fn parse_top_ready_ticket_returns_none_when_no_ready_items() {
+    let json = r#"{"items":[
+        {"status":"Backlog","title":"A","content":{"number":1}},
+        {"status":"Done","title":"B","content":{"number":2}}
+    ],"totalCount":2}"#;
+    assert!(parse_top_ready_ticket(json).is_none());
+}
+
+#[test]
+fn parse_top_ready_ticket_returns_none_for_malformed_json() {
+    assert!(parse_top_ready_ticket("not valid json").is_none());
+}
+
+#[test]
+fn parse_top_ready_ticket_returns_none_when_missing_content_number() {
+    let json = r#"{"items":[{"status":"Ready","title":"No number"}],"totalCount":1}"#;
+    assert!(parse_top_ready_ticket(json).is_none());
+}
+
+#[test]
+fn parse_top_ready_ticket_returns_none_when_missing_title() {
+    let json = r#"{"items":[{"status":"Ready","content":{"number":1}}],"totalCount":1}"#;
+    assert!(parse_top_ready_ticket(json).is_none());
+}
+
+#[test]
+fn parse_top_ready_ticket_returns_none_for_empty_items() {
+    let json = r#"{"items":[],"totalCount":0}"#;
+    assert!(parse_top_ready_ticket(json).is_none());
+}
+
 // ── run_phase: CheckReady variant ───────────────────────────────────
 
 #[test]

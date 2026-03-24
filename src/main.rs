@@ -318,6 +318,58 @@ fn build_implement_ticket_prompt(config: &Config) -> String {
     )
 }
 
+struct TicketInfo {
+    number: u64,
+    title: String,
+}
+
+#[allow(clippy::question_mark)]
+fn parse_top_ready_ticket(json: &str) -> Option<TicketInfo> {
+    let value = match serde_json::from_str::<serde_json::Value>(json) {
+        Ok(v) => v,
+        Err(_) => return None,
+    };
+    let items_value = match value.get("items") {
+        Some(v) => v,
+        None => return None,
+    };
+    let items = match items_value.as_array() {
+        Some(arr) => arr,
+        None => return None,
+    };
+    for item in items {
+        let status = match item.get("status") {
+            Some(s) => match s.as_str() {
+                Some(s) => s,
+                None => continue,
+            },
+            None => continue,
+        };
+        if status != "Ready" {
+            continue;
+        }
+        let number = match item.get("content") {
+            Some(content) => match content.get("number") {
+                Some(n) => match n.as_u64() {
+                    Some(n) => n,
+                    None => continue,
+                },
+                None => continue,
+            },
+            None => continue,
+        };
+        let title = match item.get("title") {
+            Some(t) => match t.as_str() {
+                Some(t) => t.to_string(),
+                None => continue,
+            },
+            None => continue,
+        };
+        return Some(TicketInfo { number, title });
+    }
+    None
+}
+
 fn count_backlog_items(json: &str) -> usize {
     match serde_json::from_str::<serde_json::Value>(json) {
         Ok(value) => match value.get("items") {
@@ -408,6 +460,32 @@ fn check_ready_column(config: &Config, extra_env: &HashMap<String, String>) -> (
             (count > 0, count)
         }
         None => (false, 0),
+    }
+}
+
+fn get_top_ready_ticket(
+    config: &Config,
+    extra_env: &HashMap<String, String>,
+) -> Option<TicketInfo> {
+    let project_str = config.project.to_string();
+    let output = spawn_and_capture(
+        "get-top-ready-ticket",
+        "gh",
+        &[
+            "project",
+            "item-list",
+            &project_str,
+            "--owner",
+            &config.owner,
+            "--format",
+            "json",
+        ],
+        extra_env,
+        true,
+    );
+    match output {
+        Some(json) => parse_top_ready_ticket(&json),
+        None => None,
     }
 }
 
@@ -603,10 +681,13 @@ fn spawn_and_capture(
     }
 }
 
-fn print_phase_banner(phase: &Phase, cycle: u32) {
+fn print_phase_banner(phase: &Phase, cycle: u32, ticket: Option<&TicketInfo>) {
     println!("=========================================");
     println!("  Flywheel \u{2014} cycle {cycle}");
-    println!("  Phase: {phase}");
+    match ticket {
+        Some(info) => println!("  Phase: {phase} \u{2014} #{}: {}", info.number, info.title),
+        None => println!("  Phase: {phase}"),
+    }
     println!("=========================================");
 }
 
@@ -654,7 +735,11 @@ fn main() {
     let mut cycle: u32 = 1;
 
     loop {
-        print_phase_banner(&phase, cycle);
+        let ticket_info = match phase {
+            Phase::ImplementTicket => get_top_ready_ticket(&config, &direnv_env),
+            _ => None,
+        };
+        print_phase_banner(&phase, cycle, ticket_info.as_ref());
 
         match run_phase(&phase, &config, &direnv_env) {
             None => {
