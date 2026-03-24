@@ -340,22 +340,25 @@ fn count_backlog_items(json: &str) -> usize {
     }
 }
 
-fn parse_ready_items(json: &str) -> bool {
+fn count_ready_items(json: &str) -> usize {
     match serde_json::from_str::<serde_json::Value>(json) {
         Ok(value) => match value.get("items") {
             Some(items) => match items.as_array() {
-                Some(arr) => arr.iter().any(|item| match item.get("status") {
-                    Some(status) => match status.as_str() {
-                        Some(s) => s == "Ready",
+                Some(arr) => arr
+                    .iter()
+                    .filter(|item| match item.get("status") {
+                        Some(status) => match status.as_str() {
+                            Some(s) => s == "Ready",
+                            None => false,
+                        },
                         None => false,
-                    },
-                    None => false,
-                }),
-                None => false,
+                    })
+                    .count(),
+                None => 0,
             },
-            None => false,
+            None => 0,
         },
-        Err(_) => false,
+        Err(_) => 0,
     }
 }
 
@@ -374,6 +377,7 @@ fn check_backlog_count(config: &Config, extra_env: &HashMap<String, String>) -> 
             "json",
         ],
         extra_env,
+        true,
     );
     match output {
         Some(json) => count_backlog_items(&json),
@@ -381,7 +385,7 @@ fn check_backlog_count(config: &Config, extra_env: &HashMap<String, String>) -> 
     }
 }
 
-fn check_ready_column(config: &Config, extra_env: &HashMap<String, String>) -> bool {
+fn check_ready_column(config: &Config, extra_env: &HashMap<String, String>) -> (bool, usize) {
     let project_str = config.project.to_string();
     let output = spawn_and_capture(
         "check-ready",
@@ -396,17 +400,26 @@ fn check_ready_column(config: &Config, extra_env: &HashMap<String, String>) -> b
             "json",
         ],
         extra_env,
+        true,
     );
     match output {
-        Some(json) => parse_ready_items(&json),
-        None => false,
+        Some(json) => {
+            let count = count_ready_items(&json);
+            (count > 0, count)
+        }
+        None => (false, 0),
     }
 }
 
 fn run_phase(phase: &Phase, config: &Config, extra_env: &HashMap<String, String>) -> Option<Phase> {
     match phase {
         Phase::CheckReady => {
-            let has_items = check_ready_column(config, extra_env);
+            let (has_items, count) = check_ready_column(config, extra_env);
+            if count == 0 {
+                println!("Ready column: empty");
+            } else {
+                println!("Ready column: {count} item(s)");
+            }
             Some(next_phase(phase, has_items))
         }
         Phase::GenerateTickets => {
@@ -421,6 +434,7 @@ fn run_phase(phase: &Phase, config: &Config, extra_env: &HashMap<String, String>
                 "claude",
                 &["-p", &prompt, "--dangerously-skip-permissions"],
                 extra_env,
+                false,
             );
             result.map(|_| next_phase(phase, false))
         }
@@ -436,6 +450,7 @@ fn run_phase(phase: &Phase, config: &Config, extra_env: &HashMap<String, String>
                 "claude",
                 &["-p", &prompt, "--dangerously-skip-permissions"],
                 extra_env,
+                false,
             );
             result.map(|_| next_phase(phase, false))
         }
@@ -447,6 +462,7 @@ fn spawn_and_capture(
     program: &str,
     args: &[&str],
     extra_env: &HashMap<String, String>,
+    quiet: bool,
 ) -> Option<String> {
     let mut cmd = Command::new(program);
     cmd.args(args)
@@ -500,7 +516,9 @@ fn spawn_and_capture(
         for line in reader.lines() {
             match line {
                 Ok(line) => {
-                    eprintln!("{line}");
+                    if !quiet {
+                        eprintln!("{line}");
+                    }
                     match output_clone.lock() {
                         Ok(mut out) => {
                             out.push_str(&line);
@@ -525,7 +543,9 @@ fn spawn_and_capture(
     for line in reader.lines() {
         match line {
             Ok(line) => {
-                println!("{line}");
+                if !quiet {
+                    println!("{line}");
+                }
                 match output_clone2.lock() {
                     Ok(mut out) => {
                         out.push_str(&line);
