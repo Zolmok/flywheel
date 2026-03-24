@@ -193,7 +193,7 @@ fn phase_display_check_ready() {
 
 #[test]
 fn spawn_and_capture_echo_returns_output() {
-    let result = spawn_and_capture("test", "echo", &["hello"], &HashMap::new());
+    let result = spawn_and_capture("test", "echo", &["hello"], &HashMap::new(), false);
     match result {
         Some(output) => assert_eq!(output, "hello\n"),
         None => panic!("expected Some, got None"),
@@ -202,7 +202,13 @@ fn spawn_and_capture_echo_returns_output() {
 
 #[test]
 fn spawn_and_capture_nonexistent_program_returns_none() {
-    let result = spawn_and_capture("test", "nonexistent_program_xyz", &[], &HashMap::new());
+    let result = spawn_and_capture(
+        "test",
+        "nonexistent_program_xyz",
+        &[],
+        &HashMap::new(),
+        false,
+    );
     assert!(result.is_none(), "expected None, got Some");
 }
 
@@ -213,6 +219,7 @@ fn spawn_and_capture_captures_multiline_output() {
         "printf",
         &["line1\nline2\nline3\n"],
         &HashMap::new(),
+        false,
     );
     match result {
         Some(output) => {
@@ -231,6 +238,7 @@ fn spawn_and_capture_failed_exit_still_returns_output() {
         "sh",
         &["-c", "echo output && exit 1"],
         &HashMap::new(),
+        false,
     );
     match result {
         Some(output) => {
@@ -398,48 +406,59 @@ fn build_implement_ticket_prompt_contains_implement_ticket_skill() {
     );
 }
 
-// ── parse_ready_items ───────────────────────────────────────────────
+// ── count_ready_items ───────────────────────────────────────────────
 
 #[test]
-fn parse_ready_items_returns_true_when_ready_item_exists() {
+fn count_ready_items_returns_one_when_ready_item_exists() {
     let json = r#"{"items":[{"status":"Ready","title":"Do something"}],"totalCount":1}"#;
-    assert!(parse_ready_items(json));
+    assert_eq!(count_ready_items(json), 1);
 }
 
 #[test]
-fn parse_ready_items_returns_true_with_mixed_statuses() {
+fn count_ready_items_with_mixed_statuses() {
     let json = r#"{"items":[{"status":"Backlog","title":"A"},{"status":"Ready","title":"B"}],"totalCount":2}"#;
-    assert!(parse_ready_items(json));
+    assert_eq!(count_ready_items(json), 1);
 }
 
 #[test]
-fn parse_ready_items_returns_false_for_empty_items() {
+fn count_ready_items_returns_zero_for_empty_items() {
     let json = r#"{"items":[],"totalCount":0}"#;
-    assert!(!parse_ready_items(json));
+    assert_eq!(count_ready_items(json), 0);
 }
 
 #[test]
-fn parse_ready_items_returns_false_when_all_backlog() {
+fn count_ready_items_returns_zero_when_all_backlog() {
     let json = r#"{"items":[{"status":"Backlog","title":"A"},{"status":"Backlog","title":"B"}],"totalCount":2}"#;
-    assert!(!parse_ready_items(json));
+    assert_eq!(count_ready_items(json), 0);
 }
 
 #[test]
-fn parse_ready_items_returns_false_for_malformed_json() {
+fn count_ready_items_returns_zero_for_malformed_json() {
     let json = "not valid json at all";
-    assert!(!parse_ready_items(json));
+    assert_eq!(count_ready_items(json), 0);
 }
 
 #[test]
-fn parse_ready_items_returns_false_when_items_key_missing() {
+fn count_ready_items_returns_zero_when_items_key_missing() {
     let json = r#"{"totalCount":0}"#;
-    assert!(!parse_ready_items(json));
+    assert_eq!(count_ready_items(json), 0);
 }
 
 #[test]
-fn parse_ready_items_returns_false_when_status_key_missing() {
+fn count_ready_items_returns_zero_when_status_key_missing() {
     let json = r#"{"items":[{"title":"No status field"}],"totalCount":1}"#;
-    assert!(!parse_ready_items(json));
+    assert_eq!(count_ready_items(json), 0);
+}
+
+#[test]
+fn count_ready_items_multiple_ready_items() {
+    let json = r#"{"items":[
+        {"status":"Ready","title":"A"},
+        {"status":"Backlog","title":"B"},
+        {"status":"Ready","title":"C"},
+        {"status":"Done","title":"D"}
+    ],"totalCount":4}"#;
+    assert_eq!(count_ready_items(json), 2);
 }
 
 // ── run_phase: CheckReady variant ───────────────────────────────────
@@ -485,7 +504,13 @@ fn spawn_and_capture_propagates_extra_env() {
         "FLYWHEEL_TEST_VAR".to_string(),
         "hello_from_direnv".to_string(),
     );
-    let result = spawn_and_capture("test", "sh", &["-c", "echo $FLYWHEEL_TEST_VAR"], &env);
+    let result = spawn_and_capture(
+        "test",
+        "sh",
+        &["-c", "echo $FLYWHEEL_TEST_VAR"],
+        &env,
+        false,
+    );
     match result {
         Some(output) => assert!(
             output.contains("hello_from_direnv"),
@@ -497,7 +522,7 @@ fn spawn_and_capture_propagates_extra_env() {
 
 #[test]
 fn spawn_and_capture_empty_extra_env_works() {
-    let result = spawn_and_capture("test", "echo", &["ok"], &HashMap::new());
+    let result = spawn_and_capture("test", "echo", &["ok"], &HashMap::new(), false);
     match result {
         Some(output) => assert!(output.contains("ok")),
         None => panic!("expected Some, got None"),
@@ -552,4 +577,18 @@ fn count_backlog_items_four_backlog_items_below_threshold() {
         {"status":"Ready","title":"E"}
     ],"totalCount":5}"#;
     assert_eq!(count_backlog_items(json), 4);
+}
+
+// ── spawn_and_capture: quiet mode ──────────────────────────────────
+
+#[test]
+fn spawn_and_capture_quiet_still_captures_output() {
+    let result = spawn_and_capture("test", "echo", &["captured"], &HashMap::new(), true);
+    match result {
+        Some(output) => assert!(
+            output.contains("captured"),
+            "quiet mode should still capture output, got: {output}"
+        ),
+        None => panic!("expected Some, got None"),
+    }
 }
