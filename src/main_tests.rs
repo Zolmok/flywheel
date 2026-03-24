@@ -503,3 +503,53 @@ fn spawn_and_capture_empty_extra_env_works() {
         None => panic!("expected Some, got None"),
     }
 }
+
+// ── count_backlog_items ──────────────────────────────────────────
+
+#[test]
+fn count_backlog_items_mixed_statuses_counts_only_backlog() {
+    let json = r#"{"items":[
+        {"status":"Backlog","title":"A"},
+        {"status":"Ready","title":"B"},
+        {"status":"Done","title":"C"},
+        {"status":"Backlog","title":"D"},
+        {"status":"Ready","title":"E"}
+    ],"totalCount":5}"#;
+    assert_eq!(count_backlog_items(json), 2);
+}
+
+#[test]
+fn count_backlog_items_empty_items_returns_zero() {
+    let json = r#"{"items":[],"totalCount":0}"#;
+    assert_eq!(count_backlog_items(json), 0);
+}
+
+#[test]
+fn count_backlog_items_malformed_json_returns_zero() {
+    let json = "not valid json at all";
+    assert_eq!(count_backlog_items(json), 0);
+}
+
+#[test]
+fn count_backlog_items_exactly_five_backlog_items() {
+    let json = r#"{"items":[
+        {"status":"Backlog","title":"A"},
+        {"status":"Backlog","title":"B"},
+        {"status":"Backlog","title":"C"},
+        {"status":"Backlog","title":"D"},
+        {"status":"Backlog","title":"E"}
+    ],"totalCount":5}"#;
+    assert_eq!(count_backlog_items(json), 5);
+}
+
+#[test]
+fn count_backlog_items_four_backlog_items_below_threshold() {
+    let json = r#"{"items":[
+        {"status":"Backlog","title":"A"},
+        {"status":"Backlog","title":"B"},
+        {"status":"Backlog","title":"C"},
+        {"status":"Backlog","title":"D"},
+        {"status":"Ready","title":"E"}
+    ],"totalCount":5}"#;
+    assert_eq!(count_backlog_items(json), 4);
+}

@@ -318,6 +318,28 @@ fn build_implement_ticket_prompt(config: &Config) -> String {
     )
 }
 
+fn count_backlog_items(json: &str) -> usize {
+    match serde_json::from_str::<serde_json::Value>(json) {
+        Ok(value) => match value.get("items") {
+            Some(items) => match items.as_array() {
+                Some(arr) => arr
+                    .iter()
+                    .filter(|item| match item.get("status") {
+                        Some(status) => match status.as_str() {
+                            Some(s) => s == "Backlog",
+                            None => false,
+                        },
+                        None => false,
+                    })
+                    .count(),
+                None => 0,
+            },
+            None => 0,
+        },
+        Err(_) => 0,
+    }
+}
+
 fn parse_ready_items(json: &str) -> bool {
     match serde_json::from_str::<serde_json::Value>(json) {
         Ok(value) => match value.get("items") {
@@ -334,6 +356,28 @@ fn parse_ready_items(json: &str) -> bool {
             None => false,
         },
         Err(_) => false,
+    }
+}
+
+fn check_backlog_count(config: &Config, extra_env: &HashMap<String, String>) -> usize {
+    let project_str = config.project.to_string();
+    let output = spawn_and_capture(
+        "check-backlog",
+        "gh",
+        &[
+            "project",
+            "item-list",
+            &project_str,
+            "--owner",
+            &config.owner,
+            "--format",
+            "json",
+        ],
+        extra_env,
+    );
+    match output {
+        Some(json) => count_backlog_items(&json),
+        None => 0,
     }
 }
 
@@ -365,13 +409,27 @@ fn run_phase(phase: &Phase, config: &Config, extra_env: &HashMap<String, String>
             let has_items = check_ready_column(config, extra_env);
             Some(next_phase(phase, has_items))
         }
+        Phase::GenerateTickets => {
+            let backlog_count = check_backlog_count(config, extra_env);
+            if backlog_count >= 5 {
+                println!("Backlog has {backlog_count} items, skipping ticket generation");
+                return Some(Phase::SizePrioritize);
+            }
+            let prompt = build_generate_tickets_prompt(config);
+            let result = spawn_and_capture(
+                &format!("{phase}"),
+                "claude",
+                &["-p", &prompt, "--dangerously-skip-permissions"],
+                extra_env,
+            );
+            result.map(|_| next_phase(phase, false))
+        }
         _ => {
             let prompt = match phase {
-                Phase::GenerateTickets => build_generate_tickets_prompt(config),
                 Phase::SizePrioritize => build_size_prioritize_prompt(config),
                 Phase::MoveToReady => build_move_to_ready_prompt(config),
                 Phase::ImplementTicket => build_implement_ticket_prompt(config),
-                Phase::CheckReady => unreachable!(),
+                Phase::CheckReady | Phase::GenerateTickets => unreachable!(),
             };
             let result = spawn_and_capture(
                 &format!("{phase}"),
