@@ -107,6 +107,10 @@ struct Cli {
     /// Skip to ImplementTicket, bypassing generation and triage phases
     #[arg(short = 'i', long)]
     implement_only: bool,
+
+    /// Timeout in seconds for claude subprocess calls (default: 1800 = 30 min)
+    #[arg(short = 't', long, default_value_t = 1800)]
+    timeout: u64,
 }
 
 #[derive(Deserialize, Default)]
@@ -122,6 +126,7 @@ struct Config {
     batch_size: u32,
     verbose: bool,
     implement_only: bool,
+    timeout: u64,
 }
 
 fn next_phase(current: &Phase, ready_has_items: bool, implement_only: bool) -> Option<Phase> {
@@ -160,6 +165,7 @@ fn merge_config(file: FileConfig, cli: &Cli) -> Result<Config, String> {
         batch_size: cli.batch_size,
         verbose: cli.verbose,
         implement_only: cli.implement_only,
+        timeout: cli.timeout,
     })
 }
 
@@ -527,6 +533,7 @@ fn fetch_project_items(config: &Config, extra_env: &HashMap<String, String>) -> 
         ],
         extra_env,
         true,
+        GH_TIMEOUT_SECS,
     );
     match output {
         Some(ref text) => match serde_json::from_str::<serde_json::Value>(text) {
@@ -613,6 +620,7 @@ fn run_phase(
                 &["-p", &prompt, "--dangerously-skip-permissions"],
                 extra_env,
                 quiet,
+                config.timeout,
             );
             result.map(|_| PhaseResult {
                 next: next_phase(phase, false, config.implement_only),
@@ -658,6 +666,7 @@ fn run_phase(
                 &["-p", &prompt, "--dangerously-skip-permissions"],
                 extra_env,
                 quiet,
+                config.timeout,
             );
             result.map(|_| PhaseResult {
                 next: next_phase(phase, false, config.implement_only),
@@ -710,6 +719,7 @@ fn run_phase(
                 &["-p", &prompt, "--dangerously-skip-permissions"],
                 extra_env,
                 quiet,
+                config.timeout,
             );
             result.map(|_| PhaseResult {
                 next: next_phase(phase, false, config.implement_only),
@@ -725,6 +735,7 @@ fn run_phase(
                 &["-p", &prompt, "--dangerously-skip-permissions"],
                 extra_env,
                 quiet,
+                config.timeout,
             );
             result.map(|_| PhaseResult {
                 next: next_phase(phase, false, config.implement_only),
@@ -738,6 +749,27 @@ fn run_phase(
 const SPINNER_RUNNING: u8 = 0;
 const SPINNER_SUCCESS: u8 = 1;
 const SPINNER_FAILURE: u8 = 2;
+
+fn terminal_width() -> usize {
+    unsafe {
+        let mut ws: libc::winsize = std::mem::zeroed();
+        if libc::ioctl(2, libc::TIOCGWINSZ, &mut ws) == 0 && ws.ws_col > 0 {
+            ws.ws_col as usize
+        } else {
+            80
+        }
+    }
+}
+
+fn truncate_to_width(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else if max > 3 {
+        format!("{}...", &s[..max - 3])
+    } else {
+        s[..max].to_string()
+    }
+}
 
 fn spawn_spinner(label: &str) -> (Arc<AtomicU8>, std::thread::JoinHandle<()>) {
     let stop = Arc::new(AtomicU8::new(SPINNER_RUNNING));
@@ -754,11 +786,15 @@ fn spawn_spinner(label: &str) -> (Arc<AtomicU8>, std::thread::JoinHandle<()>) {
                 } else {
                     '✗'
                 };
+                let line = format!("  {} {}", icon, label);
+                let width = terminal_width();
                 eprint!("\r\x1b[2K");
-                eprintln!("  {} {}", icon, label);
+                eprintln!("{}", truncate_to_width(&line, width));
                 break;
             }
-            eprint!("\r\x1b[2K  {} {}...", frames[idx], label);
+            let line = format!("  {} {}...", frames[idx], label);
+            let width = terminal_width();
+            eprint!("\r\x1b[2K{}", truncate_to_width(&line, width));
             idx = (idx + 1) % frames.len();
             std::thread::sleep(std::time::Duration::from_millis(80));
         }
@@ -766,12 +802,16 @@ fn spawn_spinner(label: &str) -> (Arc<AtomicU8>, std::thread::JoinHandle<()>) {
     (stop, handle)
 }
 
+/// Hardcoded timeout for quick `gh` subprocess calls (seconds).
+const GH_TIMEOUT_SECS: u64 = 60;
+
 fn spawn_and_capture(
     label: &str,
     program: &str,
     args: &[&str],
     extra_env: &HashMap<String, String>,
     quiet: bool,
+    timeout_secs: u64,
 ) -> Option<String> {
     let mut cmd = Command::new(program);
     cmd.args(args)
@@ -799,7 +839,47 @@ fn spawn_and_capture(
     };
 
     // Store child PID so the stdin-watcher can kill the process group
-    CHILD_PID.store(child.id(), Ordering::Relaxed);
+    let child_pid = child.id();
+    CHILD_PID.store(child_pid, Ordering::Relaxed);
+
+    // Spawn a watchdog thread that kills the child process group after the
+    // configured timeout.  The flag is set to true once the child exits
+    // normally so the watchdog can bail out without killing anything.
+    let child_done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let child_done_clone = child_done.clone();
+    let watchdog_label = label.to_string();
+    let watchdog_handle = std::thread::spawn(move || {
+        let deadline = std::time::Duration::from_secs(timeout_secs);
+        let tick = std::time::Duration::from_millis(500);
+        let mut elapsed = std::time::Duration::ZERO;
+        while elapsed < deadline {
+            std::thread::sleep(tick);
+            if child_done_clone.load(Ordering::Relaxed) {
+                return false;
+            }
+            elapsed += tick;
+        }
+        // Still running after timeout — kill the process group
+        if !child_done_clone.load(Ordering::Relaxed) {
+            eprintln!(
+                "{}: subprocess timed out after {}s, sending SIGTERM",
+                watchdog_label, timeout_secs
+            );
+            unsafe {
+                libc::kill(-(child_pid as i32), libc::SIGTERM);
+            }
+            // Grace period for clean shutdown
+            std::thread::sleep(std::time::Duration::from_secs(5));
+            if !child_done_clone.load(Ordering::Relaxed) {
+                eprintln!("{}: sending SIGKILL after grace period", watchdog_label);
+                unsafe {
+                    libc::kill(-(child_pid as i32), libc::SIGKILL);
+                }
+            }
+            return true;
+        }
+        false
+    });
 
     let stdout = match child.stdout.take() {
         Some(s) => s,
@@ -876,9 +956,18 @@ fn spawn_and_capture(
 
     let status = child.wait();
     CHILD_PID.store(0, Ordering::Relaxed);
+    child_done.store(true, Ordering::Relaxed);
+
+    let timed_out = match watchdog_handle.join() {
+        Ok(v) => v,
+        Err(_) => {
+            eprintln!("{label}: watchdog thread panicked");
+            false
+        }
+    };
 
     let succeeded = match status {
-        Ok(ref s) => s.success(),
+        Ok(ref s) => s.success() && !timed_out,
         Err(_) => false,
     };
 
@@ -913,10 +1002,16 @@ fn spawn_and_capture(
         }
     };
 
+    if timed_out {
+        eprintln!("{label}: {program} killed due to timeout ({timeout_secs}s)");
+        return None;
+    }
+
     match status {
         Ok(s) => {
             if !s.success() {
                 eprintln!("{label}: {program} exited with {s}");
+                return None;
             }
             Some(output)
         }
@@ -958,7 +1053,21 @@ fn main() {
                         let pid = CHILD_PID.load(Ordering::Relaxed);
                         if pid != 0 {
                             unsafe {
-                                libc::kill(-(pid as i32), libc::SIGKILL);
+                                libc::kill(-(pid as i32), libc::SIGTERM);
+                            }
+                            // Wait up to 3 seconds for the child to exit
+                            // gracefully before escalating to SIGKILL.
+                            for _ in 0..30 {
+                                std::thread::sleep(std::time::Duration::from_millis(100));
+                                if CHILD_PID.load(Ordering::Relaxed) == 0 {
+                                    break;
+                                }
+                            }
+                            let pid = CHILD_PID.load(Ordering::Relaxed);
+                            if pid != 0 {
+                                unsafe {
+                                    libc::kill(-(pid as i32), libc::SIGKILL);
+                                }
                             }
                         }
                         eprintln!("\n=== Interrupted ===");

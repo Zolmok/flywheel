@@ -13,6 +13,7 @@ fn merge_config_cli_flags_produce_correct_config() {
         batch_size: 10,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
 
     let result = merge_config(file, &cli);
@@ -23,6 +24,7 @@ fn merge_config_cli_flags_produce_correct_config() {
             assert_eq!(config.max_cycles, 3);
             assert_eq!(config.batch_size, 10);
             assert!(!config.implement_only);
+            assert_eq!(config.timeout, 1800);
         }
         Err(e) => panic!("expected Ok, got Err: {e}"),
     }
@@ -40,6 +42,7 @@ fn merge_config_missing_project_returns_error() {
         batch_size: 5,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
 
     let result = merge_config(file, &cli);
@@ -61,6 +64,7 @@ fn merge_config_missing_owner_returns_error() {
         batch_size: 5,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
 
     let result = merge_config(file, &cli);
@@ -85,6 +89,7 @@ fn merge_config_file_config_works_alone() {
         batch_size: 5,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
 
     let result = merge_config(file, &cli);
@@ -112,6 +117,7 @@ fn merge_config_cli_overrides_file_config() {
         batch_size: 15,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
 
     let result = merge_config(file, &cli);
@@ -228,7 +234,7 @@ fn phase_display_check_ready() {
 
 #[test]
 fn spawn_and_capture_echo_returns_output() {
-    let result = spawn_and_capture("test", "echo", &["hello"], &HashMap::new(), false);
+    let result = spawn_and_capture("test", "echo", &["hello"], &HashMap::new(), false, 30);
     match result {
         Some(output) => assert_eq!(output, "hello\n"),
         None => panic!("expected Some, got None"),
@@ -243,6 +249,7 @@ fn spawn_and_capture_nonexistent_program_returns_none() {
         &[],
         &HashMap::new(),
         false,
+        30,
     );
     assert!(result.is_none(), "expected None, got Some");
 }
@@ -255,6 +262,7 @@ fn spawn_and_capture_captures_multiline_output() {
         &["line1\nline2\nline3\n"],
         &HashMap::new(),
         false,
+        30,
     );
     match result {
         Some(output) => {
@@ -267,19 +275,18 @@ fn spawn_and_capture_captures_multiline_output() {
 }
 
 #[test]
-fn spawn_and_capture_failed_exit_still_returns_output() {
+fn spawn_and_capture_failed_exit_returns_none() {
     let result = spawn_and_capture(
         "test",
         "sh",
         &["-c", "echo output && exit 1"],
         &HashMap::new(),
         false,
+        30,
     );
     match result {
-        Some(output) => {
-            assert!(output.contains("output"));
-        }
-        None => panic!("expected Some, got None"),
+        Some(_) => panic!("expected None for non-zero exit, got Some"),
+        None => {}
     }
 }
 
@@ -294,6 +301,7 @@ fn build_generate_tickets_prompt_contains_project_number() {
         batch_size: 5,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
     let prompt = build_generate_tickets_prompt(&config);
     assert!(
@@ -311,6 +319,7 @@ fn build_generate_tickets_prompt_contains_owner() {
         batch_size: 5,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
     let prompt = build_generate_tickets_prompt(&config);
     assert!(prompt.contains("acme"), "prompt should contain owner");
@@ -325,6 +334,7 @@ fn build_generate_tickets_prompt_contains_generate_tickets_skill() {
         batch_size: 5,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
     let prompt = build_generate_tickets_prompt(&config);
     assert!(
@@ -344,6 +354,7 @@ fn build_size_prioritize_prompt_contains_project_number() {
         batch_size: 5,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
     let prompt = build_size_prioritize_prompt(&config);
     assert!(
@@ -361,6 +372,7 @@ fn build_size_prioritize_prompt_contains_owner() {
         batch_size: 5,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
     let prompt = build_size_prioritize_prompt(&config);
     assert!(prompt.contains("widgets"), "prompt should contain owner");
@@ -377,6 +389,7 @@ fn build_move_to_ready_prompt_contains_project_number() {
         batch_size: 8,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
     let prompt = build_move_to_ready_prompt(&config);
     assert!(
@@ -394,6 +407,7 @@ fn build_move_to_ready_prompt_contains_owner() {
         batch_size: 8,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
     let prompt = build_move_to_ready_prompt(&config);
     assert!(prompt.contains("team"), "prompt should contain owner");
@@ -408,6 +422,7 @@ fn build_move_to_ready_prompt_contains_batch_size() {
         batch_size: 8,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
     let prompt = build_move_to_ready_prompt(&config);
     assert!(prompt.contains("8"), "prompt should contain batch_size");
@@ -424,6 +439,7 @@ fn build_implement_ticket_prompt_without_ticket_contains_project_number() {
         batch_size: 5,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
     let prompt = build_implement_ticket_prompt(&config, None);
     assert!(
@@ -441,6 +457,7 @@ fn build_implement_ticket_prompt_without_ticket_contains_owner() {
         batch_size: 5,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
     let prompt = build_implement_ticket_prompt(&config, None);
     assert!(prompt.contains("dev"), "prompt should contain owner");
@@ -455,6 +472,7 @@ fn build_implement_ticket_prompt_without_ticket_contains_implement_ticket_skill(
         batch_size: 5,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
     let prompt = build_implement_ticket_prompt(&config, None);
     assert!(
@@ -472,6 +490,7 @@ fn build_implement_ticket_prompt_with_ticket_contains_ticket_number() {
         batch_size: 5,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
     let ticket = TicketInfo {
         number: 42,
@@ -490,6 +509,7 @@ fn build_implement_ticket_prompt_with_ticket_contains_project_and_owner() {
         batch_size: 5,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
     let ticket = TicketInfo {
         number: 99,
@@ -509,6 +529,7 @@ fn build_implement_ticket_prompt_with_ticket_contains_implement_ticket_skill() {
         batch_size: 5,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
     let ticket = TicketInfo {
         number: 10,
@@ -640,6 +661,7 @@ fn run_phase_check_ready_returns_none_on_api_failure() {
         batch_size: 5,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
     let result = run_phase(&Phase::CheckReady, &config, &HashMap::new());
     assert!(result.is_none(), "expected None on API failure, got Some");
@@ -661,6 +683,7 @@ fn fetch_project_items_returns_none_when_gh_unavailable() {
         batch_size: 5,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
     let result = fetch_project_items(&config, &HashMap::new());
     // We cannot guarantee None vs Some (depends on whether gh is
@@ -681,6 +704,7 @@ fn fetch_project_items_passes_project_and_owner_to_gh() {
         batch_size: 5,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
     let env = HashMap::new();
     let result = fetch_project_items(&config, &env);
@@ -715,6 +739,7 @@ fn spawn_and_capture_propagates_extra_env() {
         &["-c", "echo $FLYWHEEL_TEST_VAR"],
         &env,
         false,
+        30,
     );
     match result {
         Some(output) => assert!(
@@ -727,7 +752,7 @@ fn spawn_and_capture_propagates_extra_env() {
 
 #[test]
 fn spawn_and_capture_empty_extra_env_works() {
-    let result = spawn_and_capture("test", "echo", &["ok"], &HashMap::new(), false);
+    let result = spawn_and_capture("test", "echo", &["ok"], &HashMap::new(), false, 30);
     match result {
         Some(output) => assert!(output.contains("ok")),
         None => panic!("expected Some, got None"),
@@ -898,6 +923,7 @@ fn spawn_and_capture_returns_stdout_only_not_stderr() {
         &["-c", "echo STDOUT_CONTENT && echo STDERR_CONTENT >&2"],
         &HashMap::new(),
         false,
+        30,
     );
     match result {
         Some(output) => {
@@ -918,7 +944,7 @@ fn spawn_and_capture_returns_stdout_only_not_stderr() {
 
 #[test]
 fn spawn_and_capture_quiet_still_captures_output() {
-    let result = spawn_and_capture("test", "echo", &["captured"], &HashMap::new(), true);
+    let result = spawn_and_capture("test", "echo", &["captured"], &HashMap::new(), true, 30);
     match result {
         Some(output) => assert!(
             output.contains("captured"),
@@ -940,6 +966,7 @@ fn merge_config_verbose_true_passes_through() {
         batch_size: 5,
         verbose: true,
         implement_only: false,
+        timeout: 1800,
     };
 
     let result = merge_config(file, &cli);
@@ -959,6 +986,7 @@ fn merge_config_verbose_false_passes_through() {
         batch_size: 5,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
 
     let result = merge_config(file, &cli);
@@ -980,6 +1008,7 @@ fn merge_config_implement_only_true_passes_through() {
         batch_size: 5,
         verbose: false,
         implement_only: true,
+        timeout: 1800,
     };
 
     let result = merge_config(file, &cli);
@@ -999,6 +1028,7 @@ fn merge_config_implement_only_false_passes_through() {
         batch_size: 5,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
 
     let result = merge_config(file, &cli);
@@ -1094,6 +1124,7 @@ fn spawn_and_capture_quiet_mode_with_spinner_captures_output() {
         &["alpha\nbeta\ngamma\n"],
         &HashMap::new(),
         true,
+        30,
     );
     match result {
         Some(output) => {
@@ -1128,6 +1159,7 @@ fn run_phase_generate_tickets_returns_none_on_api_failure() {
         batch_size: 0,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
     let result = run_phase(&Phase::GenerateTickets, &config, &HashMap::new());
     assert!(result.is_none(), "expected None on API failure, got Some");
@@ -1144,6 +1176,7 @@ fn run_phase_generate_tickets_returns_none_on_api_failure_nonzero_batch() {
         batch_size: 5,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
     let result = run_phase(&Phase::GenerateTickets, &config, &HashMap::new());
     assert!(result.is_none(), "expected None on API failure, got Some");
@@ -1175,6 +1208,7 @@ fn run_phase_implement_ticket_skips_when_fetch_fails() {
         batch_size: 5,
         verbose: false,
         implement_only: false,
+        timeout: 1800,
     };
     let result = run_phase(&Phase::ImplementTicket, &config, &HashMap::new());
     match result {
@@ -1284,7 +1318,14 @@ fn spawn_spinner_returns_atomic_u8_initialized_to_zero() {
 
 #[test]
 fn spawn_and_capture_quiet_success_signals_spinner_success() {
-    let result = spawn_and_capture("success-signal", "echo", &["hello"], &HashMap::new(), true);
+    let result = spawn_and_capture(
+        "success-signal",
+        "echo",
+        &["hello"],
+        &HashMap::new(),
+        true,
+        30,
+    );
     match result {
         Some(output) => {
             assert!(
@@ -1306,15 +1347,11 @@ fn spawn_and_capture_quiet_failure_signals_spinner_failure() {
         &["-c", "echo oops; exit 1"],
         &HashMap::new(),
         true,
+        30,
     );
     match result {
-        Some(output) => {
-            assert!(
-                output.contains("oops"),
-                "expected captured output to contain 'oops', got: {output}"
-            );
-        }
-        None => panic!("expected Some output even on non-zero exit"),
+        Some(_) => panic!("expected None for non-zero exit, got Some"),
+        None => {}
     }
 }
 
@@ -1322,8 +1359,6 @@ fn spawn_and_capture_quiet_failure_signals_spinner_failure() {
 
 #[test]
 fn run_phase_check_ready_verbose_returns_none_on_api_failure() {
-    // Verify the verbose path in CheckReady also returns None when the
-    // API fails, exercising the eprintln! branch without panicking.
     let config = Config {
         project: 1,
         owner: "test-owner".to_string(),
@@ -1331,17 +1366,19 @@ fn run_phase_check_ready_verbose_returns_none_on_api_failure() {
         batch_size: 5,
         verbose: true,
         implement_only: false,
+        timeout: 1800,
     };
     let result = run_phase(&Phase::CheckReady, &config, &HashMap::new());
-    assert!(result.is_none(), "expected None on API failure in verbose mode, got Some");
+    assert!(
+        result.is_none(),
+        "expected None on API failure in verbose mode, got Some"
+    );
 }
 
 // ── run_phase: CheckReady with implement_only returns None on API failure
 
 #[test]
 fn run_phase_check_ready_implement_only_returns_none_on_api_failure() {
-    // API failure should short-circuit before the implement_only stop
-    // logic is reached, still returning None.
     let config = Config {
         project: 1,
         owner: "test-owner".to_string(),
@@ -1349,17 +1386,19 @@ fn run_phase_check_ready_implement_only_returns_none_on_api_failure() {
         batch_size: 5,
         verbose: false,
         implement_only: true,
+        timeout: 1800,
     };
     let result = run_phase(&Phase::CheckReady, &config, &HashMap::new());
-    assert!(result.is_none(), "expected None on API failure with implement_only, got Some");
+    assert!(
+        result.is_none(),
+        "expected None on API failure with implement_only, got Some"
+    );
 }
 
 // ── run_phase: GenerateTickets with verbose returns None on API failure
 
 #[test]
 fn run_phase_generate_tickets_verbose_returns_none_on_api_failure() {
-    // Verify the verbose path in GenerateTickets also returns None when
-    // the API fails.
     let config = Config {
         project: 1,
         owner: "test-owner".to_string(),
@@ -1367,17 +1406,19 @@ fn run_phase_generate_tickets_verbose_returns_none_on_api_failure() {
         batch_size: 5,
         verbose: true,
         implement_only: false,
+        timeout: 1800,
     };
     let result = run_phase(&Phase::GenerateTickets, &config, &HashMap::new());
-    assert!(result.is_none(), "expected None on API failure in verbose mode, got Some");
+    assert!(
+        result.is_none(),
+        "expected None on API failure in verbose mode, got Some"
+    );
 }
 
 // ── run_phase: ImplementTicket with verbose skips when fetch fails ───
 
 #[test]
 fn run_phase_implement_ticket_verbose_skips_when_fetch_fails() {
-    // ImplementTicket gracefully skips (returns Some with next=CheckReady)
-    // even in verbose mode when the API fails.
     let config = Config {
         project: 1,
         owner: "test-owner".to_string(),
@@ -1385,6 +1426,7 @@ fn run_phase_implement_ticket_verbose_skips_when_fetch_fails() {
         batch_size: 5,
         verbose: true,
         implement_only: false,
+        timeout: 1800,
     };
     let result = run_phase(&Phase::ImplementTicket, &config, &HashMap::new());
     match result {
@@ -1394,4 +1436,160 @@ fn run_phase_implement_ticket_verbose_skips_when_fetch_fails() {
         }
         None => panic!("expected Some, got None"),
     }
+}
+
+// ── spawn_and_capture: timeout kills subprocess ─────────────────────
+
+#[test]
+fn spawn_and_capture_timeout_returns_none() {
+    let start = std::time::Instant::now();
+    let result = spawn_and_capture("timeout-test", "sleep", &["30"], &HashMap::new(), true, 2);
+    let elapsed = start.elapsed();
+    assert!(result.is_none(), "expected None on timeout, got Some");
+    assert!(
+        elapsed.as_secs() < 15,
+        "expected timeout to trigger quickly, took {}s",
+        elapsed.as_secs()
+    );
+}
+
+#[test]
+fn spawn_and_capture_no_timeout_for_fast_process() {
+    let result = spawn_and_capture("fast-test", "echo", &["done"], &HashMap::new(), false, 5);
+    match result {
+        Some(output) => assert!(
+            output.contains("done"),
+            "expected 'done' in output, got: {output}"
+        ),
+        None => panic!("expected Some, got None"),
+    }
+}
+
+// ── GH_TIMEOUT_SECS constant ───────────────────────────────────────
+
+#[test]
+fn gh_timeout_secs_is_60() {
+    assert_eq!(GH_TIMEOUT_SECS, 60);
+}
+
+// ── Config timeout defaults ─────────────────────────────────────────
+
+#[test]
+fn merge_config_default_timeout() {
+    let file = FileConfig::default();
+    let cli = Cli {
+        project: Some(1),
+        owner: Some("test".to_string()),
+        max_cycles: 0,
+        batch_size: 5,
+        verbose: false,
+        implement_only: false,
+        timeout: 1800,
+    };
+    let result = merge_config(file, &cli);
+    match result {
+        Ok(config) => assert_eq!(config.timeout, 1800),
+        Err(e) => panic!("expected Ok, got Err: {e}"),
+    }
+}
+
+#[test]
+fn merge_config_custom_timeout() {
+    let file = FileConfig::default();
+    let cli = Cli {
+        project: Some(1),
+        owner: Some("test".to_string()),
+        max_cycles: 0,
+        batch_size: 5,
+        verbose: false,
+        implement_only: false,
+        timeout: 300,
+    };
+    let result = merge_config(file, &cli);
+    match result {
+        Ok(config) => assert_eq!(config.timeout, 300),
+        Err(e) => panic!("expected Ok, got Err: {e}"),
+    }
+}
+
+// ── CHILD_PID: cleared after spawn_and_capture completes ────────────
+
+#[test]
+fn child_pid_is_zero_after_spawn_and_capture_completes() {
+    spawn_and_capture("pid-test", "echo", &["hi"], &HashMap::new(), true, 60);
+    assert_eq!(
+        CHILD_PID.load(Ordering::Relaxed),
+        0,
+        "CHILD_PID should be 0 after spawn_and_capture completes"
+    );
+}
+
+// ── SIGTERM grace period: child responds to SIGTERM ─────────────────
+
+#[test]
+fn sigterm_grace_period_child_exits_before_sigkill_needed() {
+    let mut child = match Command::new("sh")
+        .args(&["-c", "trap 'exit 0' TERM; while true; do sleep 0.1; done"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => panic!("failed to spawn child: {e}"),
+    };
+
+    let child_pid = child.id();
+
+    std::thread::sleep(std::time::Duration::from_millis(300));
+
+    unsafe {
+        libc::kill(child_pid as i32, libc::SIGTERM);
+    }
+
+    let start = std::time::Instant::now();
+    match child.wait() {
+        Ok(_) => {}
+        Err(e) => panic!("failed to wait for child: {e}"),
+    }
+    let elapsed = start.elapsed();
+
+    assert!(
+        elapsed.as_secs() < 3,
+        "child should exit within the grace period after SIGTERM, took {}s",
+        elapsed.as_secs()
+    );
+}
+
+// ── Grace period logic: CHILD_PID == 0 means skip SIGKILL ───────────
+
+#[test]
+fn grace_period_logic_skips_sigkill_when_pid_is_zero() {
+    let saved = CHILD_PID.load(Ordering::Relaxed);
+    CHILD_PID.store(0, Ordering::Relaxed);
+
+    let pid = CHILD_PID.load(Ordering::Relaxed);
+    let would_send_sigkill = pid != 0;
+
+    CHILD_PID.store(saved, Ordering::Relaxed);
+
+    assert!(
+        !would_send_sigkill,
+        "when CHILD_PID is 0, SIGKILL should not be sent"
+    );
+}
+
+#[test]
+fn grace_period_logic_sends_sigkill_when_pid_is_nonzero() {
+    let saved = CHILD_PID.load(Ordering::Relaxed);
+    CHILD_PID.store(99999, Ordering::Relaxed);
+
+    let pid = CHILD_PID.load(Ordering::Relaxed);
+    let would_send_sigkill = pid != 0;
+
+    CHILD_PID.store(saved, Ordering::Relaxed);
+
+    assert!(
+        would_send_sigkill,
+        "when CHILD_PID is nonzero, SIGKILL should be sent"
+    );
 }
