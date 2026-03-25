@@ -12,6 +12,7 @@ fn merge_config_cli_flags_produce_correct_config() {
         max_cycles: 3,
         batch_size: 10,
         verbose: false,
+        implement_only: false,
     };
 
     let result = merge_config(file, &cli);
@@ -21,6 +22,7 @@ fn merge_config_cli_flags_produce_correct_config() {
             assert_eq!(config.owner, "acme");
             assert_eq!(config.max_cycles, 3);
             assert_eq!(config.batch_size, 10);
+            assert!(!config.implement_only);
         }
         Err(e) => panic!("expected Ok, got Err: {e}"),
     }
@@ -37,6 +39,7 @@ fn merge_config_missing_project_returns_error() {
         max_cycles: 0,
         batch_size: 5,
         verbose: false,
+        implement_only: false,
     };
 
     let result = merge_config(file, &cli);
@@ -57,6 +60,7 @@ fn merge_config_missing_owner_returns_error() {
         max_cycles: 0,
         batch_size: 5,
         verbose: false,
+        implement_only: false,
     };
 
     let result = merge_config(file, &cli);
@@ -80,6 +84,7 @@ fn merge_config_file_config_works_alone() {
         max_cycles: 0,
         batch_size: 5,
         verbose: false,
+        implement_only: false,
     };
 
     let result = merge_config(file, &cli);
@@ -106,6 +111,7 @@ fn merge_config_cli_overrides_file_config() {
         max_cycles: 7,
         batch_size: 15,
         verbose: false,
+        implement_only: false,
     };
 
     let result = merge_config(file, &cli);
@@ -120,50 +126,74 @@ fn merge_config_cli_overrides_file_config() {
     }
 }
 
-// ── next_phase: all 6 transitions ───────────────────────────────────
+// ── next_phase: all transitions ──────────────────────────────────────
 
 #[test]
 fn next_phase_generate_tickets_to_size_prioritize() {
     assert_eq!(
-        next_phase(&Phase::GenerateTickets, false),
-        Phase::SizePrioritize
+        next_phase(&Phase::GenerateTickets, false, false),
+        Some(Phase::SizePrioritize)
     );
 }
 
 #[test]
 fn next_phase_size_prioritize_to_move_to_ready() {
     assert_eq!(
-        next_phase(&Phase::SizePrioritize, false),
-        Phase::MoveToReady
+        next_phase(&Phase::SizePrioritize, false, false),
+        Some(Phase::MoveToReady)
     );
 }
 
 #[test]
 fn next_phase_move_to_ready_to_implement_ticket() {
     assert_eq!(
-        next_phase(&Phase::MoveToReady, false),
-        Phase::ImplementTicket
+        next_phase(&Phase::MoveToReady, false, false),
+        Some(Phase::ImplementTicket)
     );
 }
 
 #[test]
 fn next_phase_implement_ticket_to_check_ready() {
     assert_eq!(
-        next_phase(&Phase::ImplementTicket, false),
-        Phase::CheckReady
+        next_phase(&Phase::ImplementTicket, false, false),
+        Some(Phase::CheckReady)
     );
 }
 
 #[test]
 fn next_phase_check_ready_with_items_to_implement_ticket() {
-    assert_eq!(next_phase(&Phase::CheckReady, true), Phase::ImplementTicket);
+    assert_eq!(
+        next_phase(&Phase::CheckReady, true, false),
+        Some(Phase::ImplementTicket)
+    );
 }
 
 #[test]
 fn next_phase_check_ready_without_items_to_generate_tickets() {
     assert_eq!(
-        next_phase(&Phase::CheckReady, false),
-        Phase::GenerateTickets
+        next_phase(&Phase::CheckReady, false, false),
+        Some(Phase::GenerateTickets)
+    );
+}
+
+#[test]
+fn next_phase_check_ready_without_items_implement_only_returns_none() {
+    assert_eq!(next_phase(&Phase::CheckReady, false, true), None);
+}
+
+#[test]
+fn next_phase_check_ready_with_items_implement_only_continues() {
+    assert_eq!(
+        next_phase(&Phase::CheckReady, true, true),
+        Some(Phase::ImplementTicket)
+    );
+}
+
+#[test]
+fn next_phase_implement_only_does_not_affect_non_check_ready_phases() {
+    assert_eq!(
+        next_phase(&Phase::ImplementTicket, false, true),
+        Some(Phase::CheckReady)
     );
 }
 
@@ -263,6 +293,7 @@ fn build_generate_tickets_prompt_contains_project_number() {
         max_cycles: 0,
         batch_size: 5,
         verbose: false,
+        implement_only: false,
     };
     let prompt = build_generate_tickets_prompt(&config);
     assert!(
@@ -279,6 +310,7 @@ fn build_generate_tickets_prompt_contains_owner() {
         max_cycles: 0,
         batch_size: 5,
         verbose: false,
+        implement_only: false,
     };
     let prompt = build_generate_tickets_prompt(&config);
     assert!(prompt.contains("acme"), "prompt should contain owner");
@@ -292,6 +324,7 @@ fn build_generate_tickets_prompt_contains_generate_tickets_skill() {
         max_cycles: 0,
         batch_size: 5,
         verbose: false,
+        implement_only: false,
     };
     let prompt = build_generate_tickets_prompt(&config);
     assert!(
@@ -310,6 +343,7 @@ fn build_size_prioritize_prompt_contains_project_number() {
         max_cycles: 0,
         batch_size: 5,
         verbose: false,
+        implement_only: false,
     };
     let prompt = build_size_prioritize_prompt(&config);
     assert!(
@@ -326,6 +360,7 @@ fn build_size_prioritize_prompt_contains_owner() {
         max_cycles: 0,
         batch_size: 5,
         verbose: false,
+        implement_only: false,
     };
     let prompt = build_size_prioritize_prompt(&config);
     assert!(prompt.contains("widgets"), "prompt should contain owner");
@@ -341,6 +376,7 @@ fn build_move_to_ready_prompt_contains_project_number() {
         max_cycles: 0,
         batch_size: 8,
         verbose: false,
+        implement_only: false,
     };
     let prompt = build_move_to_ready_prompt(&config);
     assert!(
@@ -357,6 +393,7 @@ fn build_move_to_ready_prompt_contains_owner() {
         max_cycles: 0,
         batch_size: 8,
         verbose: false,
+        implement_only: false,
     };
     let prompt = build_move_to_ready_prompt(&config);
     assert!(prompt.contains("team"), "prompt should contain owner");
@@ -370,6 +407,7 @@ fn build_move_to_ready_prompt_contains_batch_size() {
         max_cycles: 0,
         batch_size: 8,
         verbose: false,
+        implement_only: false,
     };
     let prompt = build_move_to_ready_prompt(&config);
     assert!(prompt.contains("8"), "prompt should contain batch_size");
@@ -385,6 +423,7 @@ fn build_implement_ticket_prompt_without_ticket_contains_project_number() {
         max_cycles: 0,
         batch_size: 5,
         verbose: false,
+        implement_only: false,
     };
     let prompt = build_implement_ticket_prompt(&config, None);
     assert!(
@@ -401,6 +440,7 @@ fn build_implement_ticket_prompt_without_ticket_contains_owner() {
         max_cycles: 0,
         batch_size: 5,
         verbose: false,
+        implement_only: false,
     };
     let prompt = build_implement_ticket_prompt(&config, None);
     assert!(prompt.contains("dev"), "prompt should contain owner");
@@ -414,6 +454,7 @@ fn build_implement_ticket_prompt_without_ticket_contains_implement_ticket_skill(
         max_cycles: 0,
         batch_size: 5,
         verbose: false,
+        implement_only: false,
     };
     let prompt = build_implement_ticket_prompt(&config, None);
     assert!(
@@ -430,6 +471,7 @@ fn build_implement_ticket_prompt_with_ticket_contains_ticket_number() {
         max_cycles: 0,
         batch_size: 5,
         verbose: false,
+        implement_only: false,
     };
     let ticket = TicketInfo {
         number: 42,
@@ -447,6 +489,7 @@ fn build_implement_ticket_prompt_with_ticket_contains_project_and_owner() {
         max_cycles: 0,
         batch_size: 5,
         verbose: false,
+        implement_only: false,
     };
     let ticket = TicketInfo {
         number: 99,
@@ -465,6 +508,7 @@ fn build_implement_ticket_prompt_with_ticket_contains_implement_ticket_skill() {
         max_cycles: 0,
         batch_size: 5,
         verbose: false,
+        implement_only: false,
     };
     let ticket = TicketInfo {
         number: 10,
@@ -596,11 +640,12 @@ fn run_phase_check_ready_returns_some_phase() {
         max_cycles: 0,
         batch_size: 5,
         verbose: false,
+        implement_only: false,
     };
     let result = run_phase(&Phase::CheckReady, &config, &HashMap::new());
     match result {
         Some(pr) => {
-            assert_eq!(pr.next, Phase::GenerateTickets);
+            assert_eq!(pr.next, Some(Phase::GenerateTickets));
             assert!(pr.ticket.is_none());
         }
         None => panic!("expected Some, got None"),
@@ -622,6 +667,7 @@ fn fetch_project_items_returns_none_when_gh_unavailable() {
         max_cycles: 0,
         batch_size: 5,
         verbose: false,
+        implement_only: false,
     };
     let result = fetch_project_items(&config, &HashMap::new());
     // We cannot guarantee None vs Some (depends on whether gh is
@@ -641,6 +687,7 @@ fn fetch_project_items_passes_project_and_owner_to_gh() {
         max_cycles: 0,
         batch_size: 5,
         verbose: false,
+        implement_only: false,
     };
     let env = HashMap::new();
     let result = fetch_project_items(&config, &env);
@@ -899,6 +946,7 @@ fn merge_config_verbose_true_passes_through() {
         max_cycles: 0,
         batch_size: 5,
         verbose: true,
+        implement_only: false,
     };
 
     let result = merge_config(file, &cli);
@@ -917,11 +965,55 @@ fn merge_config_verbose_false_passes_through() {
         max_cycles: 0,
         batch_size: 5,
         verbose: false,
+        implement_only: false,
     };
 
     let result = merge_config(file, &cli);
     match result {
         Ok(config) => assert!(!config.verbose, "expected verbose to be false"),
+        Err(e) => panic!("expected Ok, got Err: {e}"),
+    }
+}
+
+// ── merge_config: implement_only flag passthrough ───────────────────
+
+#[test]
+fn merge_config_implement_only_true_passes_through() {
+    let file = FileConfig::default();
+    let cli = Cli {
+        project: Some(1),
+        owner: Some("owner".to_string()),
+        max_cycles: 0,
+        batch_size: 5,
+        verbose: false,
+        implement_only: true,
+    };
+
+    let result = merge_config(file, &cli);
+    match result {
+        Ok(config) => assert!(config.implement_only, "expected implement_only to be true"),
+        Err(e) => panic!("expected Ok, got Err: {e}"),
+    }
+}
+
+#[test]
+fn merge_config_implement_only_false_passes_through() {
+    let file = FileConfig::default();
+    let cli = Cli {
+        project: Some(1),
+        owner: Some("owner".to_string()),
+        max_cycles: 0,
+        batch_size: 5,
+        verbose: false,
+        implement_only: false,
+    };
+
+    let result = merge_config(file, &cli);
+    match result {
+        Ok(config) => assert!(
+            !config.implement_only,
+            "expected implement_only to be false"
+        ),
         Err(e) => panic!("expected Ok, got Err: {e}"),
     }
 }
@@ -1039,10 +1131,11 @@ fn run_phase_generate_tickets_skips_when_backlog_at_threshold_zero() {
         max_cycles: 0,
         batch_size: 0,
         verbose: false,
+        implement_only: false,
     };
     let result = run_phase(&Phase::GenerateTickets, &config, &HashMap::new());
     match result {
-        Some(r) => assert_eq!(r.next, Phase::SizePrioritize),
+        Some(r) => assert_eq!(r.next, Some(Phase::SizePrioritize)),
         None => panic!("expected Some(SizePrioritize), got None"),
     }
 }
@@ -1055,10 +1148,11 @@ fn run_phase_generate_tickets_skip_returns_size_prioritize_at_threshold_one() {
         max_cycles: 0,
         batch_size: 0,
         verbose: false,
+        implement_only: false,
     };
     let result_skip = run_phase(&Phase::GenerateTickets, &config_skip, &HashMap::new());
     match result_skip {
-        Some(r) => assert_eq!(r.next, Phase::SizePrioritize),
+        Some(r) => assert_eq!(r.next, Some(Phase::SizePrioritize)),
         None => panic!("expected Some(SizePrioritize) for batch_size=0, got None"),
     }
 }
@@ -1088,11 +1182,12 @@ fn run_phase_implement_ticket_skips_when_fetch_fails() {
         max_cycles: 0,
         batch_size: 5,
         verbose: false,
+        implement_only: false,
     };
     let result = run_phase(&Phase::ImplementTicket, &config, &HashMap::new());
     match result {
         Some(pr) => {
-            assert_eq!(pr.next, Phase::CheckReady);
+            assert_eq!(pr.next, Some(Phase::CheckReady));
             assert!(pr.ticket.is_none());
         }
         None => panic!("expected Some, got None"),
