@@ -12,23 +12,20 @@ Optionally adds each issue to a GitHub Project board.
 ## What it does
 
 1. **Gathers context** — reads `.planning/PROJECT.md`, `.planning/STATE.md`,
-   `CLAUDE.md`, and build config files to understand the project's stack,
-   conventions, and current state.
+   `.planning/MILESTONES.md`, `CLAUDE.md`, and build config files to understand
+   the project's stack, conventions, and current state. Identifies the tech
+   stack, project conventions, test infrastructure, and directory structure.
 
 2. **Analyzes the codebase** — walks the project structure looking for bugs,
    security issues, incomplete features, missing functionality, tech debt,
    and operational gaps. For each issue it records the call graph, data flow,
    and similar patterns already solved elsewhere in the codebase.
 
-3. **Competitor analysis** — searches the web for competing products,
-   identifies widely expected features that are missing, and surfaces those
-   that fit the project's architecture and vision.
-
-4. **Prioritizes** — ranks issues by severity: data loss / security first,
+3. **Prioritizes** — ranks issues by severity: data loss / security first,
    then blocking bugs, launch requirements, high-impact features, and
    developer experience.
 
-5. **Creates issues** — files each issue on GitHub with:
+4. **Creates issues** — files each issue on GitHub with:
    - Specific file paths and line numbers
    - Architecture context (affected code, callers, dependencies, data flow)
    - Reference implementations from elsewhere in the codebase
@@ -39,8 +36,18 @@ Optionally adds each issue to a GitHub Project board.
      `infrastructure`, `tech-debt`) and one priority (`critical`, `high`,
      `medium`)
 
-6. **Adds to project board** — if `--project` was specified, adds each issue
+5. **Adds to project board** — if `--project` was specified, adds each issue
    to the board.
+
+## Rules
+
+- Every issue must reference specific files, functions, or code paths
+- Each issue should be completable in a single focused session
+- Does not create issues for things listed as "Out of Scope" in PROJECT.md
+- Does not duplicate existing issues
+- The "Related patterns" section is mandatory in every issue
+- The "Constraints" section must include at least one "do not" rule
+- Verification commands must be copy-pasteable with no placeholders
 
 ## Output
 

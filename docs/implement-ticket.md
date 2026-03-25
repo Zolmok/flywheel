@@ -22,7 +22,9 @@ moves the ticket to "In Review".
    code changes, identifies needed tests and migrations.
 
 4. **Implements** — writes the code following all conventions in `CLAUDE.md`.
-   Creates new migrations if needed (never modifies existing ones).
+   Creates new migrations if needed (never modifies existing ones). For Rust
+   projects, runs `cargo clippy -- -D warnings` and fixes all errors and
+   warnings — the PR must leave clippy completely clean.
 
 5. **Writes unit tests** — uses the `rust-test-guardian` agent for Rust or
    `frontend-test-guardian` for JS/TS. Ensures all tests pass.
@@ -31,20 +33,19 @@ moves the ticket to "In Review".
    tests covering every acceptance criterion.
 
 7. **Branches and commits** — pulls latest main, creates a feature branch
-   with `gh issue develop` (linking the issue), stages relevant files, and
-   commits with the format `#<issue>: <summary>`.
+   with `gh issue develop` (linking the issue in the Development sidebar),
+   stages relevant files, and commits with the format
+   `#<issue>: <summary>`.
 
 8. **Opens a PR** — pushes the branch, creates a pull request with
-   `Resolves #<issue>` in the body, and links it to the issue.
+   `Resolves #<issue>` in the body. The `gh issue develop` link ensures
+   the issue auto-closes when the PR is merged.
 
 9. **Moves to "In Review"** — updates the ticket status on the project
    board. Does **not** merge or move to "Done".
 
-10. **Monitors CI** — watches GitHub Actions runs on the branch. If any
-    fail, diagnoses from logs, pushes a fix, and re-monitors until green.
-
-11. **Reports** — outputs a summary with issue link, PR link, board status,
-    changes made, tests added, and CI status.
+10. **Reports** — outputs a summary with issue link, PR link, board status,
+    changes made, and tests added.
 
 ## Rules
 
@@ -53,11 +54,12 @@ moves the ticket to "In Review".
 - Never merges the PR — it stays open for human review.
 - Never commits failing code.
 - All fix commits go through the open PR, never directly to main.
+- Always creates the branch with `gh issue develop` so the issue is linked.
 
 ## Output
 
 A structured report with the issue, PR URL, what was changed, tests added,
-and CI status.
+and board status.
 
 ## Installation
 
