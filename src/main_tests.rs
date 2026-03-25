@@ -689,6 +689,32 @@ fn count_backlog_items_four_backlog_items_below_threshold() {
     assert_eq!(count_backlog_items(json), 4);
 }
 
+// ── spawn_and_capture: stderr excluded from output ──────────────────
+
+#[test]
+fn spawn_and_capture_returns_stdout_only_not_stderr() {
+    let result = spawn_and_capture(
+        "test",
+        "sh",
+        &["-c", "echo STDOUT_CONTENT && echo STDERR_CONTENT >&2"],
+        &HashMap::new(),
+        false,
+    );
+    match result {
+        Some(output) => {
+            assert!(
+                output.contains("STDOUT_CONTENT"),
+                "expected stdout content in output, got: {output}"
+            );
+            assert!(
+                !output.contains("STDERR_CONTENT"),
+                "expected stderr content NOT in output, got: {output}"
+            );
+        }
+        None => panic!("expected Some, got None"),
+    }
+}
+
 // ── spawn_and_capture: quiet mode ──────────────────────────────────
 
 #[test]
@@ -702,7 +728,6 @@ fn spawn_and_capture_quiet_still_captures_output() {
         None => panic!("expected Some, got None"),
     }
 }
-
 
 // ── merge_config: verbose flag passthrough ──────────────────────────
 
