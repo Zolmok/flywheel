@@ -443,6 +443,8 @@ fn fetch_project_items(config: &Config, extra_env: &HashMap<String, String>) -> 
             &project_str,
             "--owner",
             &config.owner,
+            "--limit",
+            "1000",
             "--format",
             "json",
         ],
