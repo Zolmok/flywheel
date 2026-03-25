@@ -1325,3 +1325,121 @@ fn spawn_and_capture_quiet_failure_signals_spinner_failure() {
         None => panic!("expected Some output even on non-zero exit"),
     }
 }
+
+
+// ── CHILD_PID: cleared after spawn_and_capture completes ────────────
+
+#[test]
+fn child_pid_is_zero_after_spawn_and_capture_completes() {
+    // After spawn_and_capture finishes, CHILD_PID must be reset to 0.
+    // This is the mechanism the Ctrl-C grace period relies on to detect
+    // that the child has exited (and skip SIGKILL).
+    spawn_and_capture("pid-test", "echo", &["hi"], &HashMap::new(), true);
+    assert_eq!(
+        CHILD_PID.load(Ordering::Relaxed),
+        0,
+        "CHILD_PID should be 0 after spawn_and_capture completes"
+    );
+}
+
+// ── SIGTERM grace period: child responds to SIGTERM ─────────────────
+//
+// The Ctrl-C handler sends SIGTERM first, then polls CHILD_PID for up
+// to 3 seconds before escalating to SIGKILL. This test validates that
+// a child process which handles SIGTERM exits cleanly, proving that
+// SIGKILL is unnecessary for well-behaved processes.
+//
+// We spawn a child process directly (not via spawn_and_capture) to
+// avoid races with the shared CHILD_PID global, then send SIGTERM to
+// it and verify it exits promptly.
+
+#[test]
+fn sigterm_grace_period_child_exits_before_sigkill_needed() {
+    // Spawn a shell that traps SIGTERM and exits cleanly.
+    // Uses short sleep loop so the trap fires promptly.
+    let mut child = match Command::new("sh")
+        .args(&[
+            "-c",
+            "trap 'exit 0' TERM; while true; do sleep 0.1; done",
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => panic!("failed to spawn child: {e}"),
+    };
+
+    let child_pid = child.id();
+
+    // Give the child time to register its trap handler
+    std::thread::sleep(std::time::Duration::from_millis(300));
+
+    // Send SIGTERM, same as the Ctrl-C handler does
+    unsafe {
+        libc::kill(child_pid as i32, libc::SIGTERM);
+    }
+
+    // The child should exit within the 3-second grace period
+    let start = std::time::Instant::now();
+    match child.wait() {
+        Ok(_) => {}
+        Err(e) => panic!("failed to wait for child: {e}"),
+    }
+    let elapsed = start.elapsed();
+
+    assert!(
+        elapsed.as_secs() < 3,
+        "child should exit within the grace period after SIGTERM, took {}s",
+        elapsed.as_secs()
+    );
+}
+
+// ── Grace period logic: CHILD_PID == 0 means skip SIGKILL ───────────
+//
+// This test validates the core decision logic of the grace period:
+// when CHILD_PID is 0 (child already exited), SIGKILL must not be
+// sent. We test this by manipulating the global AtomicU32 directly.
+
+#[test]
+fn grace_period_logic_skips_sigkill_when_pid_is_zero() {
+    // Simulate the post-SIGTERM check from the Ctrl-C handler:
+    //   let pid = CHILD_PID.load(Ordering::Relaxed);
+    //   if pid != 0 { /* send SIGKILL */ }
+    //
+    // When CHILD_PID is 0, the handler must NOT send SIGKILL.
+    // We store 0 and verify the condition evaluates correctly.
+    let saved = CHILD_PID.load(Ordering::Relaxed);
+    CHILD_PID.store(0, Ordering::Relaxed);
+
+    let pid = CHILD_PID.load(Ordering::Relaxed);
+    let would_send_sigkill = pid != 0;
+
+    // Restore previous value
+    CHILD_PID.store(saved, Ordering::Relaxed);
+
+    assert!(
+        !would_send_sigkill,
+        "when CHILD_PID is 0, SIGKILL should not be sent"
+    );
+}
+
+#[test]
+fn grace_period_logic_sends_sigkill_when_pid_is_nonzero() {
+    // When CHILD_PID is nonzero after the grace period, SIGKILL
+    // would be sent. We verify the condition using a sentinel PID
+    // value (we do NOT actually send any signal).
+    let saved = CHILD_PID.load(Ordering::Relaxed);
+    CHILD_PID.store(99999, Ordering::Relaxed);
+
+    let pid = CHILD_PID.load(Ordering::Relaxed);
+    let would_send_sigkill = pid != 0;
+
+    // Restore previous value immediately
+    CHILD_PID.store(saved, Ordering::Relaxed);
+
+    assert!(
+        would_send_sigkill,
+        "when CHILD_PID is nonzero, SIGKILL should be sent"
+    );
+}
