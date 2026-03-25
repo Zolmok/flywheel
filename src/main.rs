@@ -11,6 +11,10 @@ use std::sync::{Arc, Mutex};
 /// The stdin-watcher thread reads this to kill the entire process group.
 static CHILD_PID: AtomicU32 = AtomicU32::new(0);
 
+/// Original terminal settings saved by `RawMode::enter()`.
+/// The Ctrl-C handler reads this to restore the true original state.
+static ORIGINAL_TERMIOS: Mutex<Option<libc::termios>> = Mutex::new(None);
+
 /// Save and restore terminal settings so we can use raw mode for Ctrl-C
 /// detection while a subprocess runs.
 struct RawMode {
@@ -30,6 +34,14 @@ impl RawMode {
             raw.c_cc[libc::VTIME] = 0;
             if libc::tcsetattr(0, libc::TCSANOW, &raw) != 0 {
                 return None;
+            }
+            match ORIGINAL_TERMIOS.lock() {
+                Ok(mut guard) => {
+                    *guard = Some(original);
+                }
+                Err(_) => {
+                    eprintln!("Warning: failed to store original termios");
+                }
             }
             Some(RawMode { original })
         }
@@ -761,12 +773,13 @@ fn main() {
                             }
                         }
                         eprintln!("\n=== Interrupted ===");
-                        // Restore terminal before exiting
-                        unsafe {
-                            let mut original: libc::termios = std::mem::zeroed();
-                            libc::tcgetattr(0, &mut original);
-                            original.c_lflag |= libc::ICANON | libc::ECHO | libc::ISIG;
-                            libc::tcsetattr(0, libc::TCSANOW, &original);
+                        // Restore terminal using the true original settings
+                        if let Ok(guard) = ORIGINAL_TERMIOS.lock()
+                            && let Some(ref termios) = *guard
+                        {
+                            unsafe {
+                                libc::tcsetattr(0, libc::TCSANOW, termios);
+                            }
                         }
                         std::process::exit(1);
                     }
