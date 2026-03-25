@@ -8,11 +8,17 @@ moves the ticket to "In Review".
 
 - `--project <number>` — GitHub Project number (required)
 - `--owner <owner>` — GitHub Project owner, defaults to repo owner
+- `--ticket <number>` — (optional) specific issue number to implement;
+  skips board selection when provided
+
+Arguments may also be provided in natural-language form:
+`do ticket <number> on project <number> under <owner>`.
 
 ## What it does
 
-1. **Selects a ticket** — lists items on the project board, filters for
-   "Ready" status, and picks the first one (pre-sorted by priority).
+1. **Selects a ticket** — if `--ticket` is provided, uses that specific
+   issue directly. Otherwise, lists items on the project board, filters
+   for "Ready" status, and picks the first one (pre-sorted by priority).
    Moves it to "In Progress" before starting work.
 
 2. **Understands the ticket** — reads the full issue body, referenced files,
