@@ -517,7 +517,7 @@ fn count_ready_items(json: &str) -> usize {
 
 fn fetch_project_items(config: &Config, extra_env: &HashMap<String, String>) -> Option<String> {
     let project_str = config.project.to_string();
-    spawn_and_capture(
+    let output = spawn_and_capture(
         "fetch-project-items",
         "gh",
         &[
@@ -534,7 +534,23 @@ fn fetch_project_items(config: &Config, extra_env: &HashMap<String, String>) -> 
         extra_env,
         true,
         GH_TIMEOUT_SECS,
-    )
+    );
+    match output {
+        Some(ref text) => match serde_json::from_str::<serde_json::Value>(text) {
+            Ok(value) => match value.get("items") {
+                Some(_) => output,
+                None => {
+                    eprintln!("fetch-project-items: response missing 'items' key");
+                    None
+                }
+            },
+            Err(_) => {
+                eprintln!("fetch-project-items: response is not valid JSON");
+                None
+            }
+        },
+        None => None,
+    }
 }
 
 struct PhaseResult {
@@ -552,13 +568,8 @@ fn run_phase(
             let json = match fetch_project_items(config, extra_env) {
                 Some(j) => j,
                 None => {
-                    if config.verbose {
-                        println!("Ready column: empty");
-                    }
-                    return Some(PhaseResult {
-                        next: next_phase(phase, false, config.implement_only),
-                        ticket: None,
-                    });
+                    eprintln!("CheckReady: failed to fetch project items (API failure)");
+                    return None;
                 }
             };
             let count = count_ready_items(&json);
@@ -581,11 +592,14 @@ fn run_phase(
             })
         }
         Phase::GenerateTickets => {
-            let json = fetch_project_items(config, extra_env);
-            let backlog_count = match json {
-                Some(ref j) => count_backlog_items(j),
-                None => 0,
+            let json = match fetch_project_items(config, extra_env) {
+                Some(j) => j,
+                None => {
+                    eprintln!("GenerateTickets: failed to fetch project items (API failure)");
+                    return None;
+                }
             };
+            let backlog_count = count_backlog_items(&json);
             let threshold = config.batch_size as usize;
             if backlog_count >= threshold {
                 if config.verbose {
