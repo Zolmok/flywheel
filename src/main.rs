@@ -625,8 +625,9 @@ fn spawn_and_capture(
 
     let output = Arc::new(Mutex::new(String::new()));
 
-    // Spawn a thread to stream stderr to terminal AND capture it
-    let output_clone = output.clone();
+    // Spawn a thread to stream stderr to terminal (but do NOT capture it
+    // into the output buffer — mixing stderr into the returned string
+    // corrupts JSON parsing for callers like count_ready_items).
     let stderr_handle = std::thread::spawn(move || {
         let reader = BufReader::new(stderr);
         for line in reader.lines() {
@@ -634,15 +635,6 @@ fn spawn_and_capture(
                 Ok(line) => {
                     if !quiet {
                         eprintln!("{line}");
-                    }
-                    match output_clone.lock() {
-                        Ok(mut out) => {
-                            out.push_str(&line);
-                            out.push('\n');
-                        }
-                        Err(e) => {
-                            eprintln!("stderr lock poisoned: {e}");
-                        }
                     }
                 }
                 Err(e) => {
