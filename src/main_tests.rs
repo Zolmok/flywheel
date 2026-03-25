@@ -11,6 +11,7 @@ fn merge_config_cli_flags_produce_correct_config() {
         owner: Some("acme".to_string()),
         max_cycles: 3,
         batch_size: 10,
+        verbose: false,
     };
 
     let result = merge_config(file, &cli);
@@ -35,6 +36,7 @@ fn merge_config_missing_project_returns_error() {
         owner: Some("acme".to_string()),
         max_cycles: 0,
         batch_size: 5,
+        verbose: false,
     };
 
     let result = merge_config(file, &cli);
@@ -54,6 +56,7 @@ fn merge_config_missing_owner_returns_error() {
         owner: None,
         max_cycles: 0,
         batch_size: 5,
+        verbose: false,
     };
 
     let result = merge_config(file, &cli);
@@ -76,6 +79,7 @@ fn merge_config_file_config_works_alone() {
         owner: None,
         max_cycles: 0,
         batch_size: 5,
+        verbose: false,
     };
 
     let result = merge_config(file, &cli);
@@ -101,6 +105,7 @@ fn merge_config_cli_overrides_file_config() {
         owner: Some("cli-owner".to_string()),
         max_cycles: 7,
         batch_size: 15,
+        verbose: false,
     };
 
     let result = merge_config(file, &cli);
@@ -257,6 +262,7 @@ fn build_generate_tickets_prompt_contains_project_number() {
         owner: "acme".to_string(),
         max_cycles: 0,
         batch_size: 5,
+        verbose: false,
     };
     let prompt = build_generate_tickets_prompt(&config);
     assert!(
@@ -272,6 +278,7 @@ fn build_generate_tickets_prompt_contains_owner() {
         owner: "acme".to_string(),
         max_cycles: 0,
         batch_size: 5,
+        verbose: false,
     };
     let prompt = build_generate_tickets_prompt(&config);
     assert!(prompt.contains("acme"), "prompt should contain owner");
@@ -284,6 +291,7 @@ fn build_generate_tickets_prompt_contains_generate_tickets_skill() {
         owner: "org".to_string(),
         max_cycles: 0,
         batch_size: 5,
+        verbose: false,
     };
     let prompt = build_generate_tickets_prompt(&config);
     assert!(
@@ -301,6 +309,7 @@ fn build_size_prioritize_prompt_contains_project_number() {
         owner: "widgets".to_string(),
         max_cycles: 0,
         batch_size: 5,
+        verbose: false,
     };
     let prompt = build_size_prioritize_prompt(&config);
     assert!(
@@ -316,6 +325,7 @@ fn build_size_prioritize_prompt_contains_owner() {
         owner: "widgets".to_string(),
         max_cycles: 0,
         batch_size: 5,
+        verbose: false,
     };
     let prompt = build_size_prioritize_prompt(&config);
     assert!(prompt.contains("widgets"), "prompt should contain owner");
@@ -330,6 +340,7 @@ fn build_move_to_ready_prompt_contains_project_number() {
         owner: "team".to_string(),
         max_cycles: 0,
         batch_size: 8,
+        verbose: false,
     };
     let prompt = build_move_to_ready_prompt(&config);
     assert!(
@@ -345,6 +356,7 @@ fn build_move_to_ready_prompt_contains_owner() {
         owner: "team".to_string(),
         max_cycles: 0,
         batch_size: 8,
+        verbose: false,
     };
     let prompt = build_move_to_ready_prompt(&config);
     assert!(prompt.contains("team"), "prompt should contain owner");
@@ -357,6 +369,7 @@ fn build_move_to_ready_prompt_contains_batch_size() {
         owner: "team".to_string(),
         max_cycles: 0,
         batch_size: 8,
+        verbose: false,
     };
     let prompt = build_move_to_ready_prompt(&config);
     assert!(prompt.contains("8"), "prompt should contain batch_size");
@@ -371,6 +384,7 @@ fn build_implement_ticket_prompt_contains_project_number() {
         owner: "dev".to_string(),
         max_cycles: 0,
         batch_size: 5,
+        verbose: false,
     };
     let prompt = build_implement_ticket_prompt(&config);
     assert!(
@@ -386,6 +400,7 @@ fn build_implement_ticket_prompt_contains_owner() {
         owner: "dev".to_string(),
         max_cycles: 0,
         batch_size: 5,
+        verbose: false,
     };
     let prompt = build_implement_ticket_prompt(&config);
     assert!(prompt.contains("dev"), "prompt should contain owner");
@@ -398,6 +413,7 @@ fn build_implement_ticket_prompt_contains_implement_ticket_skill() {
         owner: "org".to_string(),
         max_cycles: 0,
         batch_size: 5,
+        verbose: false,
     };
     let prompt = build_implement_ticket_prompt(&config);
     assert!(
@@ -524,6 +540,7 @@ fn run_phase_check_ready_returns_some_phase() {
         owner: "test-owner".to_string(),
         max_cycles: 0,
         batch_size: 5,
+        verbose: false,
     };
     let result = run_phase(&Phase::CheckReady, &config, &HashMap::new());
     match result {
@@ -639,6 +656,87 @@ fn spawn_and_capture_quiet_still_captures_output() {
             output.contains("captured"),
             "quiet mode should still capture output, got: {output}"
         ),
+        None => panic!("expected Some, got None"),
+    }
+}
+
+// ── merge_config: verbose flag passthrough ──────────────────────────
+
+#[test]
+fn merge_config_verbose_true_passes_through() {
+    let file = FileConfig::default();
+    let cli = Cli {
+        project: Some(1),
+        owner: Some("owner".to_string()),
+        max_cycles: 0,
+        batch_size: 5,
+        verbose: true,
+    };
+
+    let result = merge_config(file, &cli);
+    match result {
+        Ok(config) => assert!(config.verbose, "expected verbose to be true"),
+        Err(e) => panic!("expected Ok, got Err: {e}"),
+    }
+}
+
+#[test]
+fn merge_config_verbose_false_passes_through() {
+    let file = FileConfig::default();
+    let cli = Cli {
+        project: Some(1),
+        owner: Some("owner".to_string()),
+        max_cycles: 0,
+        batch_size: 5,
+        verbose: false,
+    };
+
+    let result = merge_config(file, &cli);
+    match result {
+        Ok(config) => assert!(!config.verbose, "expected verbose to be false"),
+        Err(e) => panic!("expected Ok, got Err: {e}"),
+    }
+}
+
+// ── spawn_spinner ───────────────────────────────────────────────────
+
+#[test]
+fn spawn_spinner_starts_and_stops_cleanly() {
+    let (stop, handle) = spawn_spinner("test");
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    match handle.join() {
+        Ok(_) => {}
+        Err(_) => panic!("spinner thread panicked"),
+    }
+}
+
+// ── spawn_and_capture: quiet mode with spinner captures all output ──
+
+#[test]
+fn spawn_and_capture_quiet_mode_with_spinner_captures_output() {
+    let result = spawn_and_capture(
+        "test",
+        "printf",
+        &["alpha\nbeta\ngamma\n"],
+        &HashMap::new(),
+        true,
+    );
+    match result {
+        Some(output) => {
+            assert!(
+                output.contains("alpha"),
+                "expected alpha in output, got: {output}"
+            );
+            assert!(
+                output.contains("beta"),
+                "expected beta in output, got: {output}"
+            );
+            assert!(
+                output.contains("gamma"),
+                "expected gamma in output, got: {output}"
+            );
+        }
         None => panic!("expected Some, got None"),
     }
 }
