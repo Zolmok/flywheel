@@ -510,9 +510,12 @@ fn run_phase(phase: &Phase, config: &Config, extra_env: &HashMap<String, String>
         }
         Phase::GenerateTickets => {
             let backlog_count = check_backlog_count(config, extra_env);
-            if backlog_count >= 5 {
+            let threshold = config.batch_size as usize;
+            if backlog_count >= threshold {
                 if config.verbose {
-                    println!("Backlog has {backlog_count} items, skipping ticket generation");
+                    println!(
+                        "Backlog has {backlog_count} items (threshold: {threshold}), skipping ticket generation"
+                    );
                 }
                 return Some(Phase::SizePrioritize);
             }
