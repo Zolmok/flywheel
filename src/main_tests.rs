@@ -780,6 +780,67 @@ fn spawn_spinner_starts_and_stops_cleanly() {
     }
 }
 
+// ── count_backlog_items: large item list (>30) ──────────────────────
+
+#[test]
+fn count_backlog_items_large_list_over_thirty_items() {
+    let mut items = Vec::new();
+    for i in 0..50 {
+        if i % 3 == 0 {
+            items.push(format!(r#"{{"status":"Backlog","title":"Item {i}"}}"#));
+        } else if i % 3 == 1 {
+            items.push(format!(r#"{{"status":"Ready","title":"Item {i}"}}"#));
+        } else {
+            items.push(format!(r#"{{"status":"Done","title":"Item {i}"}}"#));
+        }
+    }
+    let json = format!(r#"{{"items":[{}],"totalCount":50}}"#, items.join(","));
+    // Items 0,3,6,9,12,15,18,21,24,27,30,33,36,39,42,45,48 = 17 backlog
+    assert_eq!(count_backlog_items(&json), 17);
+}
+
+// ── count_ready_items: large item list (>30) ────────────────────────
+
+#[test]
+fn count_ready_items_large_list_over_thirty_items() {
+    let mut items = Vec::new();
+    for i in 0..50 {
+        if i % 3 == 0 {
+            items.push(format!(r#"{{"status":"Backlog","title":"Item {i}"}}"#));
+        } else if i % 3 == 1 {
+            items.push(format!(r#"{{"status":"Ready","title":"Item {i}"}}"#));
+        } else {
+            items.push(format!(r#"{{"status":"Done","title":"Item {i}"}}"#));
+        }
+    }
+    let json = format!(r#"{{"items":[{}],"totalCount":50}}"#, items.join(","));
+    // Items 1,4,7,10,13,16,19,22,25,28,31,34,37,40,43,46,49 = 17 ready
+    assert_eq!(count_ready_items(&json), 17);
+}
+
+// ── parse_top_ready_ticket: large item list (>30) ───────────────────
+
+#[test]
+fn parse_top_ready_ticket_finds_ready_item_beyond_position_thirty() {
+    let mut items = Vec::new();
+    for i in 0..35 {
+        items.push(format!(
+            r#"{{"status":"Backlog","title":"Backlog {i}","content":{{"number":{i}}}}}"#
+        ));
+    }
+    items.push(
+        r#"{"status":"Ready","title":"The ready one","content":{"number":999}}"#.to_string(),
+    );
+    let json = format!(r#"{{"items":[{}],"totalCount":36}}"#, items.join(","));
+    match parse_top_ready_ticket(&json) {
+        Some(info) => {
+            assert_eq!(info.number, 999);
+            assert_eq!(info.title, "The ready one");
+        }
+        None => panic!("expected Some, got None"),
+    }
+}
+
 // ── spawn_and_capture: quiet mode with spinner captures all output ──
 
 #[test]
