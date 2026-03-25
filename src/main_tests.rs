@@ -629,11 +629,10 @@ fn parse_top_ready_ticket_returns_none_for_empty_items() {
 // ── run_phase: CheckReady variant ───────────────────────────────────
 
 #[test]
-fn run_phase_check_ready_returns_some_phase() {
+fn run_phase_check_ready_returns_none_on_api_failure() {
     // CheckReady calls fetch_project_items which spawns `gh`, which will
     // fail in a test environment (no auth / network). The spawn failure
-    // causes the no-items path, so run_phase should return
-    // Some(PhaseResult { next: GenerateTickets, ticket: None }).
+    // should now return None (stop loop) instead of masking as empty board.
     let config = Config {
         project: 1,
         owner: "test-owner".to_string(),
@@ -643,13 +642,7 @@ fn run_phase_check_ready_returns_some_phase() {
         implement_only: false,
     };
     let result = run_phase(&Phase::CheckReady, &config, &HashMap::new());
-    match result {
-        Some(pr) => {
-            assert_eq!(pr.next, Some(Phase::GenerateTickets));
-            assert!(pr.ticket.is_none());
-        }
-        None => panic!("expected Some, got None"),
-    }
+    assert!(result.is_none(), "expected None on API failure, got Some");
 }
 
 // ── fetch_project_items ─────────────────────────────────────────────
@@ -1124,7 +1117,10 @@ fn spawn_and_capture_quiet_mode_with_spinner_captures_output() {
 // ── run_phase: GenerateTickets backlog threshold uses batch_size ─────
 
 #[test]
-fn run_phase_generate_tickets_skips_when_backlog_at_threshold_zero() {
+fn run_phase_generate_tickets_returns_none_on_api_failure() {
+    // When gh is unavailable, fetch_project_items returns None.
+    // GenerateTickets should now propagate that as None (stop loop)
+    // instead of masking it as backlog_count=0.
     let config = Config {
         project: 1,
         owner: "test-owner".to_string(),
@@ -1134,27 +1130,23 @@ fn run_phase_generate_tickets_skips_when_backlog_at_threshold_zero() {
         implement_only: false,
     };
     let result = run_phase(&Phase::GenerateTickets, &config, &HashMap::new());
-    match result {
-        Some(r) => assert_eq!(r.next, Some(Phase::SizePrioritize)),
-        None => panic!("expected Some(SizePrioritize), got None"),
-    }
+    assert!(result.is_none(), "expected None on API failure, got Some");
 }
 
 #[test]
-fn run_phase_generate_tickets_skip_returns_size_prioritize_at_threshold_one() {
-    let config_skip = Config {
+fn run_phase_generate_tickets_returns_none_on_api_failure_nonzero_batch() {
+    // Same test with a non-zero batch_size to confirm the failure path
+    // is hit before the threshold check.
+    let config = Config {
         project: 1,
         owner: "test-owner".to_string(),
         max_cycles: 0,
-        batch_size: 0,
+        batch_size: 5,
         verbose: false,
         implement_only: false,
     };
-    let result_skip = run_phase(&Phase::GenerateTickets, &config_skip, &HashMap::new());
-    match result_skip {
-        Some(r) => assert_eq!(r.next, Some(Phase::SizePrioritize)),
-        None => panic!("expected Some(SizePrioritize) for batch_size=0, got None"),
-    }
+    let result = run_phase(&Phase::GenerateTickets, &config, &HashMap::new());
+    assert!(result.is_none(), "expected None on API failure, got Some");
 }
 
 #[test]
@@ -1323,5 +1315,83 @@ fn spawn_and_capture_quiet_failure_signals_spinner_failure() {
             );
         }
         None => panic!("expected Some output even on non-zero exit"),
+    }
+}
+
+// ── run_phase: CheckReady with verbose returns None on API failure ───
+
+#[test]
+fn run_phase_check_ready_verbose_returns_none_on_api_failure() {
+    // Verify the verbose path in CheckReady also returns None when the
+    // API fails, exercising the eprintln! branch without panicking.
+    let config = Config {
+        project: 1,
+        owner: "test-owner".to_string(),
+        max_cycles: 0,
+        batch_size: 5,
+        verbose: true,
+        implement_only: false,
+    };
+    let result = run_phase(&Phase::CheckReady, &config, &HashMap::new());
+    assert!(result.is_none(), "expected None on API failure in verbose mode, got Some");
+}
+
+// ── run_phase: CheckReady with implement_only returns None on API failure
+
+#[test]
+fn run_phase_check_ready_implement_only_returns_none_on_api_failure() {
+    // API failure should short-circuit before the implement_only stop
+    // logic is reached, still returning None.
+    let config = Config {
+        project: 1,
+        owner: "test-owner".to_string(),
+        max_cycles: 0,
+        batch_size: 5,
+        verbose: false,
+        implement_only: true,
+    };
+    let result = run_phase(&Phase::CheckReady, &config, &HashMap::new());
+    assert!(result.is_none(), "expected None on API failure with implement_only, got Some");
+}
+
+// ── run_phase: GenerateTickets with verbose returns None on API failure
+
+#[test]
+fn run_phase_generate_tickets_verbose_returns_none_on_api_failure() {
+    // Verify the verbose path in GenerateTickets also returns None when
+    // the API fails.
+    let config = Config {
+        project: 1,
+        owner: "test-owner".to_string(),
+        max_cycles: 0,
+        batch_size: 5,
+        verbose: true,
+        implement_only: false,
+    };
+    let result = run_phase(&Phase::GenerateTickets, &config, &HashMap::new());
+    assert!(result.is_none(), "expected None on API failure in verbose mode, got Some");
+}
+
+// ── run_phase: ImplementTicket with verbose skips when fetch fails ───
+
+#[test]
+fn run_phase_implement_ticket_verbose_skips_when_fetch_fails() {
+    // ImplementTicket gracefully skips (returns Some with next=CheckReady)
+    // even in verbose mode when the API fails.
+    let config = Config {
+        project: 1,
+        owner: "test-owner".to_string(),
+        max_cycles: 0,
+        batch_size: 5,
+        verbose: true,
+        implement_only: false,
+    };
+    let result = run_phase(&Phase::ImplementTicket, &config, &HashMap::new());
+    match result {
+        Some(pr) => {
+            assert_eq!(pr.next, Some(Phase::CheckReady));
+            assert!(pr.ticket.is_none());
+        }
+        None => panic!("expected Some, got None"),
     }
 }
