@@ -1024,7 +1024,7 @@ fn merge_config_implement_only_false_passes_through() {
 fn spawn_spinner_starts_and_stops_cleanly() {
     let (stop, handle) = spawn_spinner("test");
     std::thread::sleep(std::time::Duration::from_millis(200));
-    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    stop.store(SPINNER_SUCCESS, std::sync::atomic::Ordering::Relaxed);
     match handle.join() {
         Ok(_) => {}
         Err(_) => panic!("spinner thread panicked"),
@@ -1254,5 +1254,74 @@ fn raw_mode_drop_still_works() {
         None => {
             // No terminal available (CI), skip
         }
+    }
+}
+
+// ── spawn_spinner: failure signal ───────────────────────────────────
+
+#[test]
+fn spawn_spinner_failure_signal_stops_cleanly() {
+    let (stop, handle) = spawn_spinner("failing-task");
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    stop.store(SPINNER_FAILURE, std::sync::atomic::Ordering::Relaxed);
+    match handle.join() {
+        Ok(_) => {}
+        Err(_) => panic!("spinner thread panicked on SPINNER_FAILURE signal"),
+    }
+}
+
+// ── spawn_spinner: initial AtomicU8 value ───────────────────────────
+
+#[test]
+fn spawn_spinner_returns_atomic_u8_initialized_to_zero() {
+    let (stop, handle) = spawn_spinner("init-check");
+    let value = stop.load(std::sync::atomic::Ordering::Relaxed);
+    assert_eq!(
+        value, SPINNER_RUNNING,
+        "AtomicU8 should start at SPINNER_RUNNING (0)"
+    );
+    // Clean up: signal success so the thread exits
+    stop.store(SPINNER_SUCCESS, std::sync::atomic::Ordering::Relaxed);
+    match handle.join() {
+        Ok(_) => {}
+        Err(_) => panic!("spinner thread panicked during cleanup"),
+    }
+}
+
+// ── spawn_and_capture: quiet success signals spinner ────────────────
+
+#[test]
+fn spawn_and_capture_quiet_success_signals_spinner_success() {
+    let result = spawn_and_capture("success-signal", "echo", &["hello"], &HashMap::new(), true);
+    match result {
+        Some(output) => {
+            assert!(
+                output.contains("hello"),
+                "expected captured output to contain 'hello', got: {output}"
+            );
+        }
+        None => panic!("expected Some output from successful command"),
+    }
+}
+
+// ── spawn_and_capture: quiet failure signals spinner ────────────────
+
+#[test]
+fn spawn_and_capture_quiet_failure_signals_spinner_failure() {
+    let result = spawn_and_capture(
+        "failure-signal",
+        "sh",
+        &["-c", "echo oops; exit 1"],
+        &HashMap::new(),
+        true,
+    );
+    match result {
+        Some(output) => {
+            assert!(
+                output.contains("oops"),
+                "expected captured output to contain 'oops', got: {output}"
+            );
+        }
+        None => panic!("expected Some output even on non-zero exit"),
     }
 }
