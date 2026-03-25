@@ -650,11 +650,10 @@ fn parse_top_ready_ticket_returns_none_for_empty_items() {
 // ── run_phase: CheckReady variant ───────────────────────────────────
 
 #[test]
-fn run_phase_check_ready_returns_some_phase() {
+fn run_phase_check_ready_returns_none_on_api_failure() {
     // CheckReady calls fetch_project_items which spawns `gh`, which will
     // fail in a test environment (no auth / network). The spawn failure
-    // causes the no-items path, so run_phase should return
-    // Some(PhaseResult { next: GenerateTickets, ticket: None }).
+    // should now return None (stop loop) instead of masking as empty board.
     let config = Config {
         project: 1,
         owner: "test-owner".to_string(),
@@ -665,13 +664,7 @@ fn run_phase_check_ready_returns_some_phase() {
         timeout: 1800,
     };
     let result = run_phase(&Phase::CheckReady, &config, &HashMap::new());
-    match result {
-        Some(pr) => {
-            assert_eq!(pr.next, Some(Phase::GenerateTickets));
-            assert!(pr.ticket.is_none());
-        }
-        None => panic!("expected Some, got None"),
-    }
+    assert!(result.is_none(), "expected None on API failure, got Some");
 }
 
 // ── fetch_project_items ─────────────────────────────────────────────
@@ -1155,7 +1148,10 @@ fn spawn_and_capture_quiet_mode_with_spinner_captures_output() {
 // ── run_phase: GenerateTickets backlog threshold uses batch_size ─────
 
 #[test]
-fn run_phase_generate_tickets_skips_when_backlog_at_threshold_zero() {
+fn run_phase_generate_tickets_returns_none_on_api_failure() {
+    // When gh is unavailable, fetch_project_items returns None.
+    // GenerateTickets should now propagate that as None (stop loop)
+    // instead of masking it as backlog_count=0.
     let config = Config {
         project: 1,
         owner: "test-owner".to_string(),
@@ -1166,28 +1162,24 @@ fn run_phase_generate_tickets_skips_when_backlog_at_threshold_zero() {
         timeout: 1800,
     };
     let result = run_phase(&Phase::GenerateTickets, &config, &HashMap::new());
-    match result {
-        Some(r) => assert_eq!(r.next, Some(Phase::SizePrioritize)),
-        None => panic!("expected Some(SizePrioritize), got None"),
-    }
+    assert!(result.is_none(), "expected None on API failure, got Some");
 }
 
 #[test]
-fn run_phase_generate_tickets_skip_returns_size_prioritize_at_threshold_one() {
-    let config_skip = Config {
+fn run_phase_generate_tickets_returns_none_on_api_failure_nonzero_batch() {
+    // Same test with a non-zero batch_size to confirm the failure path
+    // is hit before the threshold check.
+    let config = Config {
         project: 1,
         owner: "test-owner".to_string(),
         max_cycles: 0,
-        batch_size: 0,
+        batch_size: 5,
         verbose: false,
         implement_only: false,
         timeout: 1800,
     };
-    let result_skip = run_phase(&Phase::GenerateTickets, &config_skip, &HashMap::new());
-    match result_skip {
-        Some(r) => assert_eq!(r.next, Some(Phase::SizePrioritize)),
-        None => panic!("expected Some(SizePrioritize) for batch_size=0, got None"),
-    }
+    let result = run_phase(&Phase::GenerateTickets, &config, &HashMap::new());
+    assert!(result.is_none(), "expected None on API failure, got Some");
 }
 
 #[test]
@@ -1363,17 +1355,97 @@ fn spawn_and_capture_quiet_failure_signals_spinner_failure() {
     }
 }
 
+// ── run_phase: CheckReady with verbose returns None on API failure ───
+
+#[test]
+fn run_phase_check_ready_verbose_returns_none_on_api_failure() {
+    let config = Config {
+        project: 1,
+        owner: "test-owner".to_string(),
+        max_cycles: 0,
+        batch_size: 5,
+        verbose: true,
+        implement_only: false,
+        timeout: 1800,
+    };
+    let result = run_phase(&Phase::CheckReady, &config, &HashMap::new());
+    assert!(
+        result.is_none(),
+        "expected None on API failure in verbose mode, got Some"
+    );
+}
+
+// ── run_phase: CheckReady with implement_only returns None on API failure
+
+#[test]
+fn run_phase_check_ready_implement_only_returns_none_on_api_failure() {
+    let config = Config {
+        project: 1,
+        owner: "test-owner".to_string(),
+        max_cycles: 0,
+        batch_size: 5,
+        verbose: false,
+        implement_only: true,
+        timeout: 1800,
+    };
+    let result = run_phase(&Phase::CheckReady, &config, &HashMap::new());
+    assert!(
+        result.is_none(),
+        "expected None on API failure with implement_only, got Some"
+    );
+}
+
+// ── run_phase: GenerateTickets with verbose returns None on API failure
+
+#[test]
+fn run_phase_generate_tickets_verbose_returns_none_on_api_failure() {
+    let config = Config {
+        project: 1,
+        owner: "test-owner".to_string(),
+        max_cycles: 0,
+        batch_size: 5,
+        verbose: true,
+        implement_only: false,
+        timeout: 1800,
+    };
+    let result = run_phase(&Phase::GenerateTickets, &config, &HashMap::new());
+    assert!(
+        result.is_none(),
+        "expected None on API failure in verbose mode, got Some"
+    );
+}
+
+// ── run_phase: ImplementTicket with verbose skips when fetch fails ───
+
+#[test]
+fn run_phase_implement_ticket_verbose_skips_when_fetch_fails() {
+    let config = Config {
+        project: 1,
+        owner: "test-owner".to_string(),
+        max_cycles: 0,
+        batch_size: 5,
+        verbose: true,
+        implement_only: false,
+        timeout: 1800,
+    };
+    let result = run_phase(&Phase::ImplementTicket, &config, &HashMap::new());
+    match result {
+        Some(pr) => {
+            assert_eq!(pr.next, Some(Phase::CheckReady));
+            assert!(pr.ticket.is_none());
+        }
+        None => panic!("expected Some, got None"),
+    }
+}
+
 // ── spawn_and_capture: timeout kills subprocess ─────────────────────
 
 #[test]
 fn spawn_and_capture_timeout_returns_none() {
-    // Use a 2-second timeout with a process that sleeps for 30 seconds.
-    // The watchdog should kill it and return None.
     let start = std::time::Instant::now();
     let result = spawn_and_capture("timeout-test", "sleep", &["30"], &HashMap::new(), true, 2);
     let elapsed = start.elapsed();
     assert!(result.is_none(), "expected None on timeout, got Some");
-    // Should complete well before the 30-second sleep (watchdog fires at 2s + 5s grace)
     assert!(
         elapsed.as_secs() < 15,
         "expected timeout to trigger quickly, took {}s",
@@ -1444,9 +1516,6 @@ fn merge_config_custom_timeout() {
 
 #[test]
 fn child_pid_is_zero_after_spawn_and_capture_completes() {
-    // After spawn_and_capture finishes, CHILD_PID must be reset to 0.
-    // This is the mechanism the Ctrl-C grace period relies on to detect
-    // that the child has exited (and skip SIGKILL).
     spawn_and_capture("pid-test", "echo", &["hi"], &HashMap::new(), true, 60);
     assert_eq!(
         CHILD_PID.load(Ordering::Relaxed),
@@ -1456,20 +1525,9 @@ fn child_pid_is_zero_after_spawn_and_capture_completes() {
 }
 
 // ── SIGTERM grace period: child responds to SIGTERM ─────────────────
-//
-// The Ctrl-C handler sends SIGTERM first, then polls CHILD_PID for up
-// to 3 seconds before escalating to SIGKILL. This test validates that
-// a child process which handles SIGTERM exits cleanly, proving that
-// SIGKILL is unnecessary for well-behaved processes.
-//
-// We spawn a child process directly (not via spawn_and_capture) to
-// avoid races with the shared CHILD_PID global, then send SIGTERM to
-// it and verify it exits promptly.
 
 #[test]
 fn sigterm_grace_period_child_exits_before_sigkill_needed() {
-    // Spawn a shell that traps SIGTERM and exits cleanly.
-    // Uses short sleep loop so the trap fires promptly.
     let mut child = match Command::new("sh")
         .args(&["-c", "trap 'exit 0' TERM; while true; do sleep 0.1; done"])
         .stdout(Stdio::null())
@@ -1482,15 +1540,12 @@ fn sigterm_grace_period_child_exits_before_sigkill_needed() {
 
     let child_pid = child.id();
 
-    // Give the child time to register its trap handler
     std::thread::sleep(std::time::Duration::from_millis(300));
 
-    // Send SIGTERM, same as the Ctrl-C handler does
     unsafe {
         libc::kill(child_pid as i32, libc::SIGTERM);
     }
 
-    // The child should exit within the 3-second grace period
     let start = std::time::Instant::now();
     match child.wait() {
         Ok(_) => {}
@@ -1506,26 +1561,15 @@ fn sigterm_grace_period_child_exits_before_sigkill_needed() {
 }
 
 // ── Grace period logic: CHILD_PID == 0 means skip SIGKILL ───────────
-//
-// This test validates the core decision logic of the grace period:
-// when CHILD_PID is 0 (child already exited), SIGKILL must not be
-// sent. We test this by manipulating the global AtomicU32 directly.
 
 #[test]
 fn grace_period_logic_skips_sigkill_when_pid_is_zero() {
-    // Simulate the post-SIGTERM check from the Ctrl-C handler:
-    //   let pid = CHILD_PID.load(Ordering::Relaxed);
-    //   if pid != 0 { /* send SIGKILL */ }
-    //
-    // When CHILD_PID is 0, the handler must NOT send SIGKILL.
-    // We store 0 and verify the condition evaluates correctly.
     let saved = CHILD_PID.load(Ordering::Relaxed);
     CHILD_PID.store(0, Ordering::Relaxed);
 
     let pid = CHILD_PID.load(Ordering::Relaxed);
     let would_send_sigkill = pid != 0;
 
-    // Restore previous value
     CHILD_PID.store(saved, Ordering::Relaxed);
 
     assert!(
@@ -1536,16 +1580,12 @@ fn grace_period_logic_skips_sigkill_when_pid_is_zero() {
 
 #[test]
 fn grace_period_logic_sends_sigkill_when_pid_is_nonzero() {
-    // When CHILD_PID is nonzero after the grace period, SIGKILL
-    // would be sent. We verify the condition using a sentinel PID
-    // value (we do NOT actually send any signal).
     let saved = CHILD_PID.load(Ordering::Relaxed);
     CHILD_PID.store(99999, Ordering::Relaxed);
 
     let pid = CHILD_PID.load(Ordering::Relaxed);
     let would_send_sigkill = pid != 0;
 
-    // Restore previous value immediately
     CHILD_PID.store(saved, Ordering::Relaxed);
 
     assert!(
