@@ -328,12 +328,19 @@ fn build_move_to_ready_prompt(config: &Config) -> String {
     )
 }
 
-fn build_implement_ticket_prompt(config: &Config) -> String {
-    format!(
-        "Use the Skill tool to invoke 'implement-ticket' with arguments \
-         '--project {} --owner {}'. Output the complete report.",
-        config.project, config.owner
-    )
+fn build_implement_ticket_prompt(config: &Config, ticket: Option<&TicketInfo>) -> String {
+    match ticket {
+        Some(info) => format!(
+            "Use the Skill tool to invoke 'implement-ticket' with arguments \
+             'do ticket {} on project {} under {}'. Output the complete report.",
+            info.number, config.project, config.owner
+        ),
+        None => format!(
+            "Use the Skill tool to invoke 'implement-ticket' with arguments \
+             '--project {} --owner {}'. Output the complete report.",
+            config.project, config.owner
+        ),
+    }
 }
 
 struct TicketInfo {
@@ -635,14 +642,54 @@ fn run_phase(
                 ticket: None,
             })
         }
-        _ => {
-            let prompt = match phase {
-                Phase::MoveToReady => build_move_to_ready_prompt(config),
-                Phase::ImplementTicket => build_implement_ticket_prompt(config),
-                Phase::CheckReady | Phase::GenerateTickets | Phase::SizePrioritize => {
-                    unreachable!()
+        Phase::ImplementTicket => {
+            let json = match fetch_project_items(config, extra_env) {
+                Some(j) => j,
+                None => {
+                    eprintln!("ImplementTicket: failed to fetch project items, skipping");
+                    return Some(PhaseResult {
+                        next: Phase::CheckReady,
+                        ticket: None,
+                    });
                 }
             };
+            let ready_count = count_ready_items(&json);
+            let ticket = parse_top_ready_ticket(&json);
+            match ticket {
+                Some(ref info) => {
+                    if config.verbose {
+                        println!(
+                            "ImplementTicket: selected #{} — {} ({} Ready item(s))",
+                            info.number, info.title, ready_count
+                        );
+                    }
+                }
+                None => {
+                    if config.verbose {
+                        println!("ImplementTicket: no Ready tickets found, skipping");
+                    }
+                    return Some(PhaseResult {
+                        next: Phase::CheckReady,
+                        ticket: None,
+                    });
+                }
+            }
+            let prompt = build_implement_ticket_prompt(config, ticket.as_ref());
+            let quiet = !config.verbose;
+            let result = spawn_and_capture(
+                &format!("{phase}"),
+                "claude",
+                &["-p", &prompt, "--dangerously-skip-permissions"],
+                extra_env,
+                quiet,
+            );
+            result.map(|_| PhaseResult {
+                next: next_phase(phase, false),
+                ticket,
+            })
+        }
+        Phase::MoveToReady => {
+            let prompt = build_move_to_ready_prompt(config);
             let quiet = !config.verbose;
             let result = spawn_and_capture(
                 &format!("{phase}"),
