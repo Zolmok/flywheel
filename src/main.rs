@@ -793,7 +793,7 @@ fn main() {
                     println!("--- {} complete, moving to {} ---", phase, next);
                 }
 
-                if phase == Phase::CheckReady && next == Phase::GenerateTickets {
+                if phase == Phase::CheckReady {
                     if config.verbose {
                         println!(
                             "=== Cycle {} complete, starting cycle {} ===",
