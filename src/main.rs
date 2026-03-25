@@ -740,12 +740,11 @@ fn spawn_spinner(label: &str) -> (Arc<AtomicU8>, std::thread::JoinHandle<()>) {
                 } else {
                     '✗'
                 };
-                let width = label.len() + 10;
-                eprint!("\r{}\r", " ".repeat(width));
+                eprint!("\r\x1b[2K");
                 eprintln!("  {} {}", icon, label);
                 break;
             }
-            eprint!("\r  {} {}...", frames[idx], label);
+            eprint!("\r\x1b[2K  {} {}...", frames[idx], label);
             idx = (idx + 1) % frames.len();
             std::thread::sleep(std::time::Duration::from_millis(80));
         }
