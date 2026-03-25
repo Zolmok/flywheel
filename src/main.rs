@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read};
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio, exit};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Global PID of the active child session leader.
@@ -682,10 +682,16 @@ fn run_phase(
                     });
                 }
             }
+            let label = match ticket {
+                Some(ref info) => {
+                    format!("{phase} \u{2014} #{}: {}", info.number, info.title)
+                }
+                None => format!("{phase}"),
+            };
             let prompt = build_implement_ticket_prompt(config, ticket.as_ref());
             let quiet = !config.verbose;
             let result = spawn_and_capture(
-                &format!("{phase}"),
+                &label,
                 "claude",
                 &["-p", &prompt, "--dangerously-skip-permissions"],
                 extra_env,
@@ -714,19 +720,35 @@ fn run_phase(
     }
 }
 
-fn spawn_spinner(label: &str) -> (Arc<AtomicBool>, std::thread::JoinHandle<()>) {
-    let stop = Arc::new(AtomicBool::new(false));
+/// Spinner stop signals: 0 = running, 1 = succeeded, 2 = failed.
+const SPINNER_RUNNING: u8 = 0;
+const SPINNER_SUCCESS: u8 = 1;
+const SPINNER_FAILURE: u8 = 2;
+
+fn spawn_spinner(label: &str) -> (Arc<AtomicU8>, std::thread::JoinHandle<()>) {
+    let stop = Arc::new(AtomicU8::new(SPINNER_RUNNING));
     let stop_clone = stop.clone();
     let label = label.to_string();
     let handle = std::thread::spawn(move || {
         let frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
         let mut idx = 0;
-        while !stop_clone.load(Ordering::Relaxed) {
+        loop {
+            let signal = stop_clone.load(Ordering::Relaxed);
+            if signal != SPINNER_RUNNING {
+                let icon = if signal == SPINNER_SUCCESS {
+                    '✓'
+                } else {
+                    '✗'
+                };
+                let width = label.len() + 10;
+                eprint!("\r{}\r", " ".repeat(width));
+                eprintln!("  {} {}", icon, label);
+                break;
+            }
             eprint!("\r  {} {}...", frames[idx], label);
             idx = (idx + 1) % frames.len();
             std::thread::sleep(std::time::Duration::from_millis(80));
         }
-        eprint!("\r{}\r", " ".repeat(40));
     });
     (stop, handle)
 }
@@ -842,9 +864,19 @@ fn spawn_and_capture(
     let status = child.wait();
     CHILD_PID.store(0, Ordering::Relaxed);
 
-    // Stop spinner after child exits
+    let succeeded = match status {
+        Ok(ref s) => s.success(),
+        Err(_) => false,
+    };
+
+    // Stop spinner after child exits, signaling success or failure
     if let Some((stop, handle)) = spinner {
-        stop.store(true, Ordering::Relaxed);
+        let signal = if succeeded {
+            SPINNER_SUCCESS
+        } else {
+            SPINNER_FAILURE
+        };
+        stop.store(signal, Ordering::Relaxed);
         let _ = handle.join();
     }
 
