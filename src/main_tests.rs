@@ -689,6 +689,110 @@ fn count_backlog_items_four_backlog_items_below_threshold() {
     assert_eq!(count_backlog_items(json), 4);
 }
 
+// ── backlog_items_need_sizing ────────────────────────────────────────
+
+#[test]
+fn backlog_items_need_sizing_true_when_size_field_missing() {
+    let json = r#"{"items":[{"status":"Backlog","title":"A"}],"totalCount":1}"#;
+    assert!(backlog_items_need_sizing(json));
+}
+
+#[test]
+fn backlog_items_need_sizing_true_when_size_field_empty() {
+    let json = r#"{"items":[{"status":"Backlog","title":"A","size":""}],"totalCount":1}"#;
+    assert!(backlog_items_need_sizing(json));
+}
+
+#[test]
+fn backlog_items_need_sizing_false_when_all_have_size() {
+    let json = r#"{"items":[
+        {"status":"Backlog","title":"A","size":"M"},
+        {"status":"Backlog","title":"B","size":"XS"}
+    ],"totalCount":2}"#;
+    assert!(!backlog_items_need_sizing(json));
+}
+
+#[test]
+fn backlog_items_need_sizing_ignores_non_backlog_items() {
+    let json = r#"{"items":[
+        {"status":"Ready","title":"A"},
+        {"status":"Done","title":"B"}
+    ],"totalCount":2}"#;
+    assert!(!backlog_items_need_sizing(json));
+}
+
+#[test]
+fn backlog_items_need_sizing_false_for_empty_items() {
+    let json = r#"{"items":[],"totalCount":0}"#;
+    assert!(!backlog_items_need_sizing(json));
+}
+
+#[test]
+fn backlog_items_need_sizing_false_for_malformed_json() {
+    assert!(!backlog_items_need_sizing("not valid json"));
+}
+
+#[test]
+fn backlog_items_need_sizing_mixed_backlog_some_missing_size() {
+    let json = r#"{"items":[
+        {"status":"Backlog","title":"A","size":"L"},
+        {"status":"Backlog","title":"B"}
+    ],"totalCount":2}"#;
+    assert!(backlog_items_need_sizing(json));
+}
+
+// ── backlog_items_need_prioritization ────────────────────────────────
+
+#[test]
+fn backlog_items_need_prioritization_true_when_priority_field_missing() {
+    let json = r#"{"items":[{"status":"Backlog","title":"A"}],"totalCount":1}"#;
+    assert!(backlog_items_need_prioritization(json));
+}
+
+#[test]
+fn backlog_items_need_prioritization_true_when_priority_field_empty() {
+    let json = r#"{"items":[{"status":"Backlog","title":"A","priority":""}],"totalCount":1}"#;
+    assert!(backlog_items_need_prioritization(json));
+}
+
+#[test]
+fn backlog_items_need_prioritization_false_when_all_have_priority() {
+    let json = r#"{"items":[
+        {"status":"Backlog","title":"A","priority":"P1"},
+        {"status":"Backlog","title":"B","priority":"P2"}
+    ],"totalCount":2}"#;
+    assert!(!backlog_items_need_prioritization(json));
+}
+
+#[test]
+fn backlog_items_need_prioritization_ignores_non_backlog_items() {
+    let json = r#"{"items":[
+        {"status":"Ready","title":"A"},
+        {"status":"Done","title":"B"}
+    ],"totalCount":2}"#;
+    assert!(!backlog_items_need_prioritization(json));
+}
+
+#[test]
+fn backlog_items_need_prioritization_false_for_empty_items() {
+    let json = r#"{"items":[],"totalCount":0}"#;
+    assert!(!backlog_items_need_prioritization(json));
+}
+
+#[test]
+fn backlog_items_need_prioritization_false_for_malformed_json() {
+    assert!(!backlog_items_need_prioritization("not valid json"));
+}
+
+#[test]
+fn backlog_items_need_prioritization_mixed_backlog_some_missing_priority() {
+    let json = r#"{"items":[
+        {"status":"Backlog","title":"A","priority":"P0"},
+        {"status":"Backlog","title":"B"}
+    ],"totalCount":2}"#;
+    assert!(backlog_items_need_prioritization(json));
+}
+
 // ── spawn_and_capture: stderr excluded from output ──────────────────
 
 #[test]
@@ -828,9 +932,8 @@ fn parse_top_ready_ticket_finds_ready_item_beyond_position_thirty() {
             r#"{{"status":"Backlog","title":"Backlog {i}","content":{{"number":{i}}}}}"#
         ));
     }
-    items.push(
-        r#"{"status":"Ready","title":"The ready one","content":{"number":999}}"#.to_string(),
-    );
+    items
+        .push(r#"{"status":"Ready","title":"The ready one","content":{"number":999}}"#.to_string());
     let json = format!(r#"{{"items":[{}],"totalCount":36}}"#, items.join(","));
     match parse_top_ready_ticket(&json) {
         Some(info) => {
