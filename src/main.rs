@@ -410,6 +410,68 @@ fn count_backlog_items(json: &str) -> usize {
     }
 }
 
+fn backlog_items_need_sizing(json: &str) -> bool {
+    match serde_json::from_str::<serde_json::Value>(json) {
+        Ok(value) => match value.get("items") {
+            Some(items) => match items.as_array() {
+                Some(arr) => arr.iter().any(|item| {
+                    let is_backlog = match item.get("status") {
+                        Some(status) => match status.as_str() {
+                            Some(s) => s == "Backlog",
+                            None => false,
+                        },
+                        None => false,
+                    };
+                    if !is_backlog {
+                        return false;
+                    }
+                    match item.get("size") {
+                        Some(size) => match size.as_str() {
+                            Some(s) => s.is_empty(),
+                            None => true,
+                        },
+                        None => true,
+                    }
+                }),
+                None => false,
+            },
+            None => false,
+        },
+        Err(_) => false,
+    }
+}
+
+fn backlog_items_need_prioritization(json: &str) -> bool {
+    match serde_json::from_str::<serde_json::Value>(json) {
+        Ok(value) => match value.get("items") {
+            Some(items) => match items.as_array() {
+                Some(arr) => arr.iter().any(|item| {
+                    let is_backlog = match item.get("status") {
+                        Some(status) => match status.as_str() {
+                            Some(s) => s == "Backlog",
+                            None => false,
+                        },
+                        None => false,
+                    };
+                    if !is_backlog {
+                        return false;
+                    }
+                    match item.get("priority") {
+                        Some(priority) => match priority.as_str() {
+                            Some(s) => s.is_empty(),
+                            None => true,
+                        },
+                        None => true,
+                    }
+                }),
+                None => false,
+            },
+            None => false,
+        },
+        Err(_) => false,
+    }
+}
+
 fn count_ready_items(json: &str) -> usize {
     match serde_json::from_str::<serde_json::Value>(json) {
         Ok(value) => match value.get("items") {
@@ -528,12 +590,58 @@ fn run_phase(
                 ticket: None,
             })
         }
+        Phase::SizePrioritize => {
+            let json = fetch_project_items(config, extra_env);
+            let needs_sizing = match json {
+                Some(ref j) => backlog_items_need_sizing(j),
+                None => true,
+            };
+            let needs_prioritization = match json {
+                Some(ref j) => backlog_items_need_prioritization(j),
+                None => true,
+            };
+            if !needs_sizing && !needs_prioritization {
+                if config.verbose {
+                    println!(
+                        "All backlog items already have size and priority set, \
+                         skipping SizePrioritize phase"
+                    );
+                }
+                return Some(PhaseResult {
+                    next: Phase::MoveToReady,
+                    ticket: None,
+                });
+            }
+            if config.verbose {
+                if needs_sizing && needs_prioritization {
+                    println!("Backlog items need both sizing and prioritization");
+                } else if needs_sizing {
+                    println!("Backlog items need sizing (prioritization already done)");
+                } else {
+                    println!("Backlog items need prioritization (sizing already done)");
+                }
+            }
+            let prompt = build_size_prioritize_prompt(config);
+            let quiet = !config.verbose;
+            let result = spawn_and_capture(
+                &format!("{phase}"),
+                "claude",
+                &["-p", &prompt, "--dangerously-skip-permissions"],
+                extra_env,
+                quiet,
+            );
+            result.map(|_| PhaseResult {
+                next: next_phase(phase, false),
+                ticket: None,
+            })
+        }
         _ => {
             let prompt = match phase {
-                Phase::SizePrioritize => build_size_prioritize_prompt(config),
                 Phase::MoveToReady => build_move_to_ready_prompt(config),
                 Phase::ImplementTicket => build_implement_ticket_prompt(config),
-                Phase::CheckReady | Phase::GenerateTickets => unreachable!(),
+                Phase::CheckReady | Phase::GenerateTickets | Phase::SizePrioritize => {
+                    unreachable!()
+                }
             };
             let quiet = !config.verbose;
             let result = spawn_and_capture(
