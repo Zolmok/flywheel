@@ -969,7 +969,23 @@ fn main() {
                         let pid = CHILD_PID.load(Ordering::Relaxed);
                         if pid != 0 {
                             unsafe {
-                                libc::kill(-(pid as i32), libc::SIGKILL);
+                                libc::kill(-(pid as i32), libc::SIGTERM);
+                            }
+                            // Wait up to 3 seconds for the child to exit
+                            // gracefully before escalating to SIGKILL.
+                            for _ in 0..30 {
+                                std::thread::sleep(
+                                    std::time::Duration::from_millis(100),
+                                );
+                                if CHILD_PID.load(Ordering::Relaxed) == 0 {
+                                    break;
+                                }
+                            }
+                            let pid = CHILD_PID.load(Ordering::Relaxed);
+                            if pid != 0 {
+                                unsafe {
+                                    libc::kill(-(pid as i32), libc::SIGKILL);
+                                }
                             }
                         }
                         eprintln!("\n=== Interrupted ===");
