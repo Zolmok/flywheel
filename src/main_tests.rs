@@ -267,7 +267,7 @@ fn spawn_and_capture_captures_multiline_output() {
 }
 
 #[test]
-fn spawn_and_capture_failed_exit_still_returns_output() {
+fn spawn_and_capture_failed_exit_returns_none() {
     let result = spawn_and_capture(
         "test",
         "sh",
@@ -276,10 +276,8 @@ fn spawn_and_capture_failed_exit_still_returns_output() {
         false,
     );
     match result {
-        Some(output) => {
-            assert!(output.contains("output"));
-        }
-        None => panic!("expected Some, got None"),
+        Some(_) => panic!("expected None for non-zero exit, got Some"),
+        None => {}
     }
 }
 
@@ -1316,12 +1314,7 @@ fn spawn_and_capture_quiet_failure_signals_spinner_failure() {
         true,
     );
     match result {
-        Some(output) => {
-            assert!(
-                output.contains("oops"),
-                "expected captured output to contain 'oops', got: {output}"
-            );
-        }
-        None => panic!("expected Some output even on non-zero exit"),
+        Some(_) => panic!("expected None for non-zero exit, got Some"),
+        None => {}
     }
 }
