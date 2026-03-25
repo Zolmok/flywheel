@@ -736,6 +736,27 @@ const SPINNER_RUNNING: u8 = 0;
 const SPINNER_SUCCESS: u8 = 1;
 const SPINNER_FAILURE: u8 = 2;
 
+fn terminal_width() -> usize {
+    unsafe {
+        let mut ws: libc::winsize = std::mem::zeroed();
+        if libc::ioctl(2, libc::TIOCGWINSZ, &mut ws) == 0 && ws.ws_col > 0 {
+            ws.ws_col as usize
+        } else {
+            80
+        }
+    }
+}
+
+fn truncate_to_width(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else if max > 3 {
+        format!("{}...", &s[..max - 3])
+    } else {
+        s[..max].to_string()
+    }
+}
+
 fn spawn_spinner(label: &str) -> (Arc<AtomicU8>, std::thread::JoinHandle<()>) {
     let stop = Arc::new(AtomicU8::new(SPINNER_RUNNING));
     let stop_clone = stop.clone();
@@ -751,11 +772,15 @@ fn spawn_spinner(label: &str) -> (Arc<AtomicU8>, std::thread::JoinHandle<()>) {
                 } else {
                     '✗'
                 };
+                let line = format!("  {} {}", icon, label);
+                let width = terminal_width();
                 eprint!("\r\x1b[2K");
-                eprintln!("  {} {}", icon, label);
+                eprintln!("{}", truncate_to_width(&line, width));
                 break;
             }
-            eprint!("\r\x1b[2K  {} {}...", frames[idx], label);
+            let line = format!("  {} {}...", frames[idx], label);
+            let width = terminal_width();
+            eprint!("\r\x1b[2K{}", truncate_to_width(&line, width));
             idx = (idx + 1) % frames.len();
             std::thread::sleep(std::time::Duration::from_millis(80));
         }
@@ -1013,7 +1038,21 @@ fn main() {
                         let pid = CHILD_PID.load(Ordering::Relaxed);
                         if pid != 0 {
                             unsafe {
-                                libc::kill(-(pid as i32), libc::SIGKILL);
+                                libc::kill(-(pid as i32), libc::SIGTERM);
+                            }
+                            // Wait up to 3 seconds for the child to exit
+                            // gracefully before escalating to SIGKILL.
+                            for _ in 0..30 {
+                                std::thread::sleep(std::time::Duration::from_millis(100));
+                                if CHILD_PID.load(Ordering::Relaxed) == 0 {
+                                    break;
+                                }
+                            }
+                            let pid = CHILD_PID.load(Ordering::Relaxed);
+                            if pid != 0 {
+                                unsafe {
+                                    libc::kill(-(pid as i32), libc::SIGKILL);
+                                }
                             }
                         }
                         eprintln!("\n=== Interrupted ===");
