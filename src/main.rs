@@ -432,10 +432,10 @@ fn count_ready_items(json: &str) -> usize {
     }
 }
 
-fn check_backlog_count(config: &Config, extra_env: &HashMap<String, String>) -> usize {
+fn fetch_project_items(config: &Config, extra_env: &HashMap<String, String>) -> Option<String> {
     let project_str = config.project.to_string();
-    let output = spawn_and_capture(
-        "check-backlog",
+    spawn_and_capture(
+        "fetch-project-items",
         "gh",
         &[
             "project",
@@ -448,69 +448,35 @@ fn check_backlog_count(config: &Config, extra_env: &HashMap<String, String>) -> 
         ],
         extra_env,
         true,
-    );
-    match output {
-        Some(json) => count_backlog_items(&json),
-        None => 0,
-    }
+    )
 }
 
-fn check_ready_column(config: &Config, extra_env: &HashMap<String, String>) -> (bool, usize) {
-    let project_str = config.project.to_string();
-    let output = spawn_and_capture(
-        "check-ready",
-        "gh",
-        &[
-            "project",
-            "item-list",
-            &project_str,
-            "--owner",
-            &config.owner,
-            "--format",
-            "json",
-        ],
-        extra_env,
-        true,
-    );
-    match output {
-        Some(json) => {
-            let count = count_ready_items(&json);
-            (count > 0, count)
-        }
-        None => (false, 0),
-    }
+struct PhaseResult {
+    next: Phase,
+    ticket: Option<TicketInfo>,
 }
 
-fn get_top_ready_ticket(
+fn run_phase(
+    phase: &Phase,
     config: &Config,
     extra_env: &HashMap<String, String>,
-) -> Option<TicketInfo> {
-    let project_str = config.project.to_string();
-    let output = spawn_and_capture(
-        "get-top-ready-ticket",
-        "gh",
-        &[
-            "project",
-            "item-list",
-            &project_str,
-            "--owner",
-            &config.owner,
-            "--format",
-            "json",
-        ],
-        extra_env,
-        true,
-    );
-    match output {
-        Some(json) => parse_top_ready_ticket(&json),
-        None => None,
-    }
-}
-
-fn run_phase(phase: &Phase, config: &Config, extra_env: &HashMap<String, String>) -> Option<Phase> {
+) -> Option<PhaseResult> {
     match phase {
         Phase::CheckReady => {
-            let (has_items, count) = check_ready_column(config, extra_env);
+            let json = match fetch_project_items(config, extra_env) {
+                Some(j) => j,
+                None => {
+                    if config.verbose {
+                        println!("Ready column: empty");
+                    }
+                    return Some(PhaseResult {
+                        next: next_phase(phase, false),
+                        ticket: None,
+                    });
+                }
+            };
+            let count = count_ready_items(&json);
+            let has_items = count > 0;
             if config.verbose {
                 if count == 0 {
                     println!("Ready column: empty");
@@ -518,10 +484,22 @@ fn run_phase(phase: &Phase, config: &Config, extra_env: &HashMap<String, String>
                     println!("Ready column: {count} item(s)");
                 }
             }
-            Some(next_phase(phase, has_items))
+            let ticket = if has_items {
+                parse_top_ready_ticket(&json)
+            } else {
+                None
+            };
+            Some(PhaseResult {
+                next: next_phase(phase, has_items),
+                ticket,
+            })
         }
         Phase::GenerateTickets => {
-            let backlog_count = check_backlog_count(config, extra_env);
+            let json = fetch_project_items(config, extra_env);
+            let backlog_count = match json {
+                Some(ref j) => count_backlog_items(j),
+                None => 0,
+            };
             let threshold = config.batch_size as usize;
             if backlog_count >= threshold {
                 if config.verbose {
@@ -529,7 +507,10 @@ fn run_phase(phase: &Phase, config: &Config, extra_env: &HashMap<String, String>
                         "Backlog has {backlog_count} items (threshold: {threshold}), skipping ticket generation"
                     );
                 }
-                return Some(Phase::SizePrioritize);
+                return Some(PhaseResult {
+                    next: Phase::SizePrioritize,
+                    ticket: None,
+                });
             }
             let prompt = build_generate_tickets_prompt(config);
             let quiet = !config.verbose;
@@ -540,7 +521,10 @@ fn run_phase(phase: &Phase, config: &Config, extra_env: &HashMap<String, String>
                 extra_env,
                 quiet,
             );
-            result.map(|_| next_phase(phase, false))
+            result.map(|_| PhaseResult {
+                next: next_phase(phase, false),
+                ticket: None,
+            })
         }
         _ => {
             let prompt = match phase {
@@ -557,7 +541,10 @@ fn run_phase(phase: &Phase, config: &Config, extra_env: &HashMap<String, String>
                 extra_env,
                 quiet,
             );
-            result.map(|_| next_phase(phase, false))
+            result.map(|_| PhaseResult {
+                next: next_phase(phase, false),
+                ticket: None,
+            })
         }
     }
 }
@@ -791,10 +778,11 @@ fn main() {
 
     let mut phase = Phase::GenerateTickets;
     let mut cycle: u32 = 1;
+    let mut pending_ticket: Option<TicketInfo> = None;
 
     loop {
         let ticket_info = match phase {
-            Phase::ImplementTicket => get_top_ready_ticket(&config, &direnv_env),
+            Phase::ImplementTicket => pending_ticket.take(),
             _ => None,
         };
         print_phase_banner(&phase, cycle, ticket_info.as_ref());
@@ -804,9 +792,9 @@ fn main() {
                 eprintln!("=== Phase \"{}\" failed, stopping ===", phase);
                 break;
             }
-            Some(next) => {
+            Some(result) => {
                 if config.verbose {
-                    println!("--- {} complete, moving to {} ---", phase, next);
+                    println!("--- {} complete, moving to {} ---", phase, result.next);
                 }
 
                 if phase == Phase::CheckReady {
@@ -824,7 +812,8 @@ fn main() {
                     }
                 }
 
-                phase = next;
+                pending_ticket = result.ticket;
+                phase = result.next;
             }
         }
     }

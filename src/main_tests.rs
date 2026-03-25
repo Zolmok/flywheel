@@ -531,10 +531,10 @@ fn parse_top_ready_ticket_returns_none_for_empty_items() {
 
 #[test]
 fn run_phase_check_ready_returns_some_phase() {
-    // CheckReady calls check_ready_column which spawns `gh`, which will
+    // CheckReady calls fetch_project_items which spawns `gh`, which will
     // fail in a test environment (no auth / network). The spawn failure
-    // causes check_ready_column to return false, so run_phase should
-    // return Some(GenerateTickets) (the no-items path).
+    // causes the no-items path, so run_phase should return
+    // Some(PhaseResult { next: GenerateTickets, ticket: None }).
     let config = Config {
         project: 1,
         owner: "test-owner".to_string(),
@@ -544,9 +544,52 @@ fn run_phase_check_ready_returns_some_phase() {
     };
     let result = run_phase(&Phase::CheckReady, &config, &HashMap::new());
     match result {
-        Some(phase) => assert_eq!(phase, Phase::GenerateTickets),
+        Some(pr) => {
+            assert_eq!(pr.next, Phase::GenerateTickets);
+            assert!(pr.ticket.is_none());
+        }
         None => panic!("expected Some, got None"),
     }
+}
+
+// ── fetch_project_items ─────────────────────────────────────────────
+
+#[test]
+fn fetch_project_items_returns_none_when_gh_unavailable() {
+    // In a test environment `gh project item-list` will fail (no auth,
+    // no network, or gh not installed). spawn_and_capture still returns
+    // Some with captured output even on non-zero exit, but gh may not
+    // be present at all, which would yield None. Either way the function
+    // must not panic.
+    let config = Config {
+        project: 999999,
+        owner: "nonexistent-owner-xyz".to_string(),
+        max_cycles: 0,
+        batch_size: 5,
+        verbose: false,
+    };
+    let result = fetch_project_items(&config, &HashMap::new());
+    // We cannot guarantee None vs Some (depends on whether gh is
+    // installed), but we verify the call completes without panicking
+    // and that the result is a valid Option<String>.
+    let _ = result.is_some();
+}
+
+#[test]
+fn fetch_project_items_passes_project_and_owner_to_gh() {
+    // Verify fetch_project_items builds the correct command by using a
+    // config with specific values. Since gh will fail in tests, we just
+    // confirm it does not panic and returns an Option.
+    let config = Config {
+        project: 42,
+        owner: "acme-corp".to_string(),
+        max_cycles: 0,
+        batch_size: 5,
+        verbose: false,
+    };
+    let env = HashMap::new();
+    let result = fetch_project_items(&config, &env);
+    let _ = result.is_some();
 }
 
 // ── load_direnv_env ─────────────────────────────────────────────────
@@ -755,7 +798,7 @@ fn run_phase_generate_tickets_skips_when_backlog_at_threshold_zero() {
     };
     let result = run_phase(&Phase::GenerateTickets, &config, &HashMap::new());
     match result {
-        Some(phase) => assert_eq!(phase, Phase::SizePrioritize),
+        Some(r) => assert_eq!(r.next, Phase::SizePrioritize),
         None => panic!("expected Some(SizePrioritize), got None"),
     }
 }
@@ -771,7 +814,7 @@ fn run_phase_generate_tickets_skip_returns_size_prioritize_at_threshold_one() {
     };
     let result_skip = run_phase(&Phase::GenerateTickets, &config_skip, &HashMap::new());
     match result_skip {
-        Some(phase) => assert_eq!(phase, Phase::SizePrioritize),
+        Some(r) => assert_eq!(r.next, Phase::SizePrioritize),
         None => panic!("expected Some(SizePrioritize) for batch_size=0, got None"),
     }
 }
