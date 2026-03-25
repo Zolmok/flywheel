@@ -103,6 +103,10 @@ struct Cli {
     /// Show all subprocess output (default: show spinner only)
     #[arg(short = 'v', long)]
     verbose: bool,
+
+    /// Skip to ImplementTicket, bypassing generation and triage phases
+    #[arg(short = 'i', long)]
+    implement_only: bool,
 }
 
 #[derive(Deserialize, Default)]
@@ -117,19 +121,22 @@ struct Config {
     max_cycles: u32,
     batch_size: u32,
     verbose: bool,
+    implement_only: bool,
 }
 
-fn next_phase(current: &Phase, ready_has_items: bool) -> Phase {
+fn next_phase(current: &Phase, ready_has_items: bool, implement_only: bool) -> Option<Phase> {
     match current {
-        Phase::GenerateTickets => Phase::SizePrioritize,
-        Phase::SizePrioritize => Phase::MoveToReady,
-        Phase::MoveToReady => Phase::ImplementTicket,
-        Phase::ImplementTicket => Phase::CheckReady,
+        Phase::GenerateTickets => Some(Phase::SizePrioritize),
+        Phase::SizePrioritize => Some(Phase::MoveToReady),
+        Phase::MoveToReady => Some(Phase::ImplementTicket),
+        Phase::ImplementTicket => Some(Phase::CheckReady),
         Phase::CheckReady => {
             if ready_has_items {
-                Phase::ImplementTicket
+                Some(Phase::ImplementTicket)
+            } else if implement_only {
+                None
             } else {
-                Phase::GenerateTickets
+                Some(Phase::GenerateTickets)
             }
         }
     }
@@ -152,6 +159,7 @@ fn merge_config(file: FileConfig, cli: &Cli) -> Result<Config, String> {
         max_cycles: cli.max_cycles,
         batch_size: cli.batch_size,
         verbose: cli.verbose,
+        implement_only: cli.implement_only,
     })
 }
 
@@ -523,7 +531,7 @@ fn fetch_project_items(config: &Config, extra_env: &HashMap<String, String>) -> 
 }
 
 struct PhaseResult {
-    next: Phase,
+    next: Option<Phase>,
     ticket: Option<TicketInfo>,
 }
 
@@ -541,7 +549,7 @@ fn run_phase(
                         println!("Ready column: empty");
                     }
                     return Some(PhaseResult {
-                        next: next_phase(phase, false),
+                        next: next_phase(phase, false, config.implement_only),
                         ticket: None,
                     });
                 }
@@ -561,7 +569,7 @@ fn run_phase(
                 None
             };
             Some(PhaseResult {
-                next: next_phase(phase, has_items),
+                next: next_phase(phase, has_items, config.implement_only),
                 ticket,
             })
         }
@@ -579,7 +587,7 @@ fn run_phase(
                     );
                 }
                 return Some(PhaseResult {
-                    next: Phase::SizePrioritize,
+                    next: Some(Phase::SizePrioritize),
                     ticket: None,
                 });
             }
@@ -593,7 +601,7 @@ fn run_phase(
                 quiet,
             );
             result.map(|_| PhaseResult {
-                next: next_phase(phase, false),
+                next: next_phase(phase, false, config.implement_only),
                 ticket: None,
             })
         }
@@ -615,7 +623,7 @@ fn run_phase(
                     );
                 }
                 return Some(PhaseResult {
-                    next: Phase::MoveToReady,
+                    next: Some(Phase::MoveToReady),
                     ticket: None,
                 });
             }
@@ -638,7 +646,7 @@ fn run_phase(
                 quiet,
             );
             result.map(|_| PhaseResult {
-                next: next_phase(phase, false),
+                next: next_phase(phase, false, config.implement_only),
                 ticket: None,
             })
         }
@@ -648,7 +656,7 @@ fn run_phase(
                 None => {
                     eprintln!("ImplementTicket: failed to fetch project items, skipping");
                     return Some(PhaseResult {
-                        next: Phase::CheckReady,
+                        next: Some(Phase::CheckReady),
                         ticket: None,
                     });
                 }
@@ -669,7 +677,7 @@ fn run_phase(
                         println!("ImplementTicket: no Ready tickets found, skipping");
                     }
                     return Some(PhaseResult {
-                        next: Phase::CheckReady,
+                        next: Some(Phase::CheckReady),
                         ticket: None,
                     });
                 }
@@ -684,7 +692,7 @@ fn run_phase(
                 quiet,
             );
             result.map(|_| PhaseResult {
-                next: next_phase(phase, false),
+                next: next_phase(phase, false, config.implement_only),
                 ticket,
             })
         }
@@ -699,7 +707,7 @@ fn run_phase(
                 quiet,
             );
             result.map(|_| PhaseResult {
-                next: next_phase(phase, false),
+                next: next_phase(phase, false, config.implement_only),
                 ticket: None,
             })
         }
@@ -925,7 +933,11 @@ fn main() {
         }
     });
 
-    let mut phase = Phase::GenerateTickets;
+    let mut phase = if config.implement_only {
+        Phase::ImplementTicket
+    } else {
+        Phase::GenerateTickets
+    };
     let mut cycle: u32 = 1;
     let mut pending_ticket: Option<TicketInfo> = None;
 
@@ -942,8 +954,16 @@ fn main() {
                 break;
             }
             Some(result) => {
+                let next = match result.next {
+                    Some(p) => p,
+                    None => {
+                        println!("=== No more Ready tickets, stopping ===");
+                        break;
+                    }
+                };
+
                 if config.verbose {
-                    println!("--- {} complete, moving to {} ---", phase, result.next);
+                    println!("--- {} complete, moving to {} ---", phase, next);
                 }
 
                 if phase == Phase::CheckReady {
@@ -962,7 +982,7 @@ fn main() {
                 }
 
                 pending_ticket = result.ticket;
-                phase = result.next;
+                phase = next;
             }
         }
     }
