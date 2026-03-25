@@ -378,7 +378,7 @@ fn build_move_to_ready_prompt_contains_batch_size() {
 // ── build_implement_ticket_prompt ───────────────────────────────────
 
 #[test]
-fn build_implement_ticket_prompt_contains_project_number() {
+fn build_implement_ticket_prompt_without_ticket_contains_project_number() {
     let config = Config {
         project: 33,
         owner: "dev".to_string(),
@@ -386,7 +386,7 @@ fn build_implement_ticket_prompt_contains_project_number() {
         batch_size: 5,
         verbose: false,
     };
-    let prompt = build_implement_ticket_prompt(&config);
+    let prompt = build_implement_ticket_prompt(&config, None);
     assert!(
         prompt.contains("33"),
         "prompt should contain project number"
@@ -394,7 +394,7 @@ fn build_implement_ticket_prompt_contains_project_number() {
 }
 
 #[test]
-fn build_implement_ticket_prompt_contains_owner() {
+fn build_implement_ticket_prompt_without_ticket_contains_owner() {
     let config = Config {
         project: 33,
         owner: "dev".to_string(),
@@ -402,12 +402,12 @@ fn build_implement_ticket_prompt_contains_owner() {
         batch_size: 5,
         verbose: false,
     };
-    let prompt = build_implement_ticket_prompt(&config);
+    let prompt = build_implement_ticket_prompt(&config, None);
     assert!(prompt.contains("dev"), "prompt should contain owner");
 }
 
 #[test]
-fn build_implement_ticket_prompt_contains_implement_ticket_skill() {
+fn build_implement_ticket_prompt_without_ticket_contains_implement_ticket_skill() {
     let config = Config {
         project: 1,
         owner: "org".to_string(),
@@ -415,7 +415,62 @@ fn build_implement_ticket_prompt_contains_implement_ticket_skill() {
         batch_size: 5,
         verbose: false,
     };
-    let prompt = build_implement_ticket_prompt(&config);
+    let prompt = build_implement_ticket_prompt(&config, None);
+    assert!(
+        prompt.contains("implement-ticket"),
+        "prompt should contain implement-ticket skill name"
+    );
+}
+
+#[test]
+fn build_implement_ticket_prompt_with_ticket_contains_ticket_number() {
+    let config = Config {
+        project: 3,
+        owner: "org".to_string(),
+        max_cycles: 0,
+        batch_size: 5,
+        verbose: false,
+    };
+    let ticket = TicketInfo {
+        number: 42,
+        title: "Fix the widget".to_string(),
+    };
+    let prompt = build_implement_ticket_prompt(&config, Some(&ticket));
+    assert!(prompt.contains("42"), "prompt should contain ticket number");
+}
+
+#[test]
+fn build_implement_ticket_prompt_with_ticket_contains_project_and_owner() {
+    let config = Config {
+        project: 7,
+        owner: "team".to_string(),
+        max_cycles: 0,
+        batch_size: 5,
+        verbose: false,
+    };
+    let ticket = TicketInfo {
+        number: 99,
+        title: "Add feature".to_string(),
+    };
+    let prompt = build_implement_ticket_prompt(&config, Some(&ticket));
+    assert!(prompt.contains("7"), "prompt should contain project number");
+    assert!(prompt.contains("team"), "prompt should contain owner");
+}
+
+#[test]
+fn build_implement_ticket_prompt_with_ticket_contains_implement_ticket_skill() {
+    let config = Config {
+        project: 1,
+        owner: "org".to_string(),
+        max_cycles: 0,
+        batch_size: 5,
+        verbose: false,
+    };
+    let ticket = TicketInfo {
+        number: 10,
+        title: "Something".to_string(),
+    };
+    let prompt = build_implement_ticket_prompt(&config, Some(&ticket));
     assert!(
         prompt.contains("implement-ticket"),
         "prompt should contain implement-ticket skill name"
@@ -1019,6 +1074,48 @@ fn run_phase_generate_tickets_skip_message_contains_threshold() {
         msg.contains("threshold: 7"),
         "skip message should embed the configured threshold value"
     );
+}
+
+// ── run_phase: ImplementTicket variant ───────────────────────────────
+
+#[test]
+fn run_phase_implement_ticket_skips_when_fetch_fails() {
+    // In a test environment `gh` will fail, triggering the
+    // "failed to fetch project items, skipping" path.
+    let config = Config {
+        project: 1,
+        owner: "test-owner".to_string(),
+        max_cycles: 0,
+        batch_size: 5,
+        verbose: false,
+    };
+    let result = run_phase(&Phase::ImplementTicket, &config, &HashMap::new());
+    match result {
+        Some(pr) => {
+            assert_eq!(pr.next, Phase::CheckReady);
+            assert!(pr.ticket.is_none());
+        }
+        None => panic!("expected Some, got None"),
+    }
+}
+
+// ── print_phase_banner ──────────────────────────────────────────────
+
+#[test]
+fn print_phase_banner_without_ticket_does_not_panic() {
+    // Verify the function runs cleanly when ticket is None.
+    print_phase_banner(&Phase::GenerateTickets, 1, None);
+}
+
+#[test]
+fn print_phase_banner_with_ticket_does_not_panic() {
+    // Verify the function runs cleanly when a ticket is provided,
+    // exercising the Some(info) arm that prints ticket number and title.
+    let ticket = TicketInfo {
+        number: 42,
+        title: "Fix the widget".to_string(),
+    };
+    print_phase_banner(&Phase::ImplementTicket, 3, Some(&ticket));
 }
 
 // ── ORIGINAL_TERMIOS static ─────────────────────────────────────────
