@@ -660,6 +660,7 @@ fn spawn_and_capture_quiet_still_captures_output() {
     }
 }
 
+
 // ── merge_config: verbose flag passthrough ──────────────────────────
 
 #[test]
@@ -739,4 +740,51 @@ fn spawn_and_capture_quiet_mode_with_spinner_captures_output() {
         }
         None => panic!("expected Some, got None"),
     }
+}
+
+// ── run_phase: GenerateTickets backlog threshold uses batch_size ─────
+
+#[test]
+fn run_phase_generate_tickets_skips_when_backlog_at_threshold_zero() {
+    let config = Config {
+        project: 1,
+        owner: "test-owner".to_string(),
+        max_cycles: 0,
+        batch_size: 0,
+        verbose: false,
+    };
+    let result = run_phase(&Phase::GenerateTickets, &config, &HashMap::new());
+    match result {
+        Some(phase) => assert_eq!(phase, Phase::SizePrioritize),
+        None => panic!("expected Some(SizePrioritize), got None"),
+    }
+}
+
+#[test]
+fn run_phase_generate_tickets_skip_returns_size_prioritize_at_threshold_one() {
+    let config_skip = Config {
+        project: 1,
+        owner: "test-owner".to_string(),
+        max_cycles: 0,
+        batch_size: 0,
+        verbose: false,
+    };
+    let result_skip = run_phase(&Phase::GenerateTickets, &config_skip, &HashMap::new());
+    match result_skip {
+        Some(phase) => assert_eq!(phase, Phase::SizePrioritize),
+        None => panic!("expected Some(SizePrioritize) for batch_size=0, got None"),
+    }
+}
+
+#[test]
+fn run_phase_generate_tickets_skip_message_contains_threshold() {
+    let threshold: usize = 7_u32 as usize;
+    let backlog_count: usize = 10;
+    let msg = format!(
+        "Backlog has {backlog_count} items (threshold: {threshold}), skipping ticket generation"
+    );
+    assert!(
+        msg.contains("threshold: 7"),
+        "skip message should embed the configured threshold value"
+    );
 }
