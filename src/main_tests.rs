@@ -788,3 +788,47 @@ fn run_phase_generate_tickets_skip_message_contains_threshold() {
         "skip message should embed the configured threshold value"
     );
 }
+
+// ── ORIGINAL_TERMIOS static ─────────────────────────────────────────
+
+#[test]
+fn original_termios_static_is_lockable() {
+    // Verify the static mutex can be locked without panicking
+    match ORIGINAL_TERMIOS.lock() {
+        Ok(guard) => {
+            let _ = guard.is_some();
+        }
+        Err(e) => panic!("expected Ok, got Err: {e}"),
+    }
+}
+
+#[test]
+fn raw_mode_enter_stores_original_termios() {
+    // RawMode::enter() may fail in CI (no terminal), so handle gracefully
+    match RawMode::enter() {
+        Some(_raw) => match ORIGINAL_TERMIOS.lock() {
+            Ok(guard) => assert!(
+                guard.is_some(),
+                "ORIGINAL_TERMIOS should be Some after enter()"
+            ),
+            Err(e) => panic!("expected Ok, got Err: {e}"),
+        },
+        None => {
+            // No terminal available (CI), skip assertion
+        }
+    }
+}
+
+#[test]
+fn raw_mode_drop_still_works() {
+    // Verify that drop doesn't panic even after our changes
+    match RawMode::enter() {
+        Some(raw) => {
+            drop(raw);
+            // If we get here, drop didn't panic
+        }
+        None => {
+            // No terminal available (CI), skip
+        }
+    }
+}
