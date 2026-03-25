@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read};
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio, exit};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Global PID of the active child session leader.
@@ -87,6 +87,10 @@ struct Cli {
     /// Tickets to move to Ready per cycle
     #[arg(short = 'n', long, default_value_t = 5)]
     batch_size: u32,
+
+    /// Show all subprocess output (default: show spinner only)
+    #[arg(short = 'v', long)]
+    verbose: bool,
 }
 
 #[derive(Deserialize, Default)]
@@ -100,6 +104,7 @@ struct Config {
     owner: String,
     max_cycles: u32,
     batch_size: u32,
+    verbose: bool,
 }
 
 fn next_phase(current: &Phase, ready_has_items: bool) -> Phase {
@@ -134,6 +139,7 @@ fn merge_config(file: FileConfig, cli: &Cli) -> Result<Config, String> {
         owner,
         max_cycles: cli.max_cycles,
         batch_size: cli.batch_size,
+        verbose: cli.verbose,
     })
 }
 
@@ -493,26 +499,31 @@ fn run_phase(phase: &Phase, config: &Config, extra_env: &HashMap<String, String>
     match phase {
         Phase::CheckReady => {
             let (has_items, count) = check_ready_column(config, extra_env);
-            if count == 0 {
-                println!("Ready column: empty");
-            } else {
-                println!("Ready column: {count} item(s)");
+            if config.verbose {
+                if count == 0 {
+                    println!("Ready column: empty");
+                } else {
+                    println!("Ready column: {count} item(s)");
+                }
             }
             Some(next_phase(phase, has_items))
         }
         Phase::GenerateTickets => {
             let backlog_count = check_backlog_count(config, extra_env);
             if backlog_count >= 5 {
-                println!("Backlog has {backlog_count} items, skipping ticket generation");
+                if config.verbose {
+                    println!("Backlog has {backlog_count} items, skipping ticket generation");
+                }
                 return Some(Phase::SizePrioritize);
             }
             let prompt = build_generate_tickets_prompt(config);
+            let quiet = !config.verbose;
             let result = spawn_and_capture(
                 &format!("{phase}"),
                 "claude",
                 &["-p", &prompt, "--dangerously-skip-permissions"],
                 extra_env,
-                false,
+                quiet,
             );
             result.map(|_| next_phase(phase, false))
         }
@@ -523,16 +534,34 @@ fn run_phase(phase: &Phase, config: &Config, extra_env: &HashMap<String, String>
                 Phase::ImplementTicket => build_implement_ticket_prompt(config),
                 Phase::CheckReady | Phase::GenerateTickets => unreachable!(),
             };
+            let quiet = !config.verbose;
             let result = spawn_and_capture(
                 &format!("{phase}"),
                 "claude",
                 &["-p", &prompt, "--dangerously-skip-permissions"],
                 extra_env,
-                false,
+                quiet,
             );
             result.map(|_| next_phase(phase, false))
         }
     }
+}
+
+fn spawn_spinner(label: &str) -> (Arc<AtomicBool>, std::thread::JoinHandle<()>) {
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_clone = stop.clone();
+    let label = label.to_string();
+    let handle = std::thread::spawn(move || {
+        let frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+        let mut idx = 0;
+        while !stop_clone.load(Ordering::Relaxed) {
+            eprint!("\r  {} {}...", frames[idx], label);
+            idx = (idx + 1) % frames.len();
+            std::thread::sleep(std::time::Duration::from_millis(80));
+        }
+        eprint!("\r{}\r", " ".repeat(40));
+    });
+    (stop, handle)
 }
 
 fn spawn_and_capture(
@@ -583,6 +612,13 @@ fn spawn_and_capture(
             eprintln!("{label}: no stderr pipe");
             return None;
         }
+    };
+
+    // Start spinner when in quiet mode
+    let spinner = if quiet {
+        Some(spawn_spinner(label))
+    } else {
+        None
     };
 
     let output = Arc::new(Mutex::new(String::new()));
@@ -646,6 +682,12 @@ fn spawn_and_capture(
 
     let status = child.wait();
     CHILD_PID.store(0, Ordering::Relaxed);
+
+    // Stop spinner after child exits
+    if let Some((stop, handle)) = spinner {
+        stop.store(true, Ordering::Relaxed);
+        let _ = handle.join();
+    }
 
     let output = match Arc::try_unwrap(output) {
         Ok(mutex) => match mutex.into_inner() {
@@ -747,14 +789,18 @@ fn main() {
                 break;
             }
             Some(next) => {
-                println!("--- {} complete, moving to {} ---", phase, next);
+                if config.verbose {
+                    println!("--- {} complete, moving to {} ---", phase, next);
+                }
 
                 if phase == Phase::CheckReady && next == Phase::GenerateTickets {
-                    println!(
-                        "=== Cycle {} complete, starting cycle {} ===",
-                        cycle,
-                        cycle + 1
-                    );
+                    if config.verbose {
+                        println!(
+                            "=== Cycle {} complete, starting cycle {} ===",
+                            cycle,
+                            cycle + 1
+                        );
+                    }
                     cycle += 1;
                     if config.max_cycles > 0 && cycle > config.max_cycles {
                         println!("=== Reached max cycles ({}) ===", config.max_cycles);
