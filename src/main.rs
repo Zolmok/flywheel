@@ -997,6 +997,7 @@ fn spawn_and_capture(
         Ok(s) => {
             if !s.success() {
                 eprintln!("{label}: {program} exited with {s}");
+                return None;
             }
             Some(output)
         }
