@@ -1665,10 +1665,29 @@ fn merge_config_custom_timeout() {
 fn child_pid_is_zero_after_spawn_and_capture_completes() {
     spawn_and_capture("pid-test", "echo", &["hi"], &HashMap::new(), true, 60);
     assert_eq!(
-        CHILD_PID.load(Ordering::Relaxed),
+        CHILD_PID.load(Ordering::Acquire),
         0,
         "CHILD_PID should be 0 after spawn_and_capture completes"
     );
+}
+
+// ── CHILD_PID: cross-thread store/load without panic ────────────────
+
+#[test]
+fn child_pid_cross_thread_store_load() {
+    let handle = std::thread::spawn(|| {
+        CHILD_PID.store(12345, Ordering::Release);
+    });
+
+    match handle.join() {
+        Ok(_) => {}
+        Err(e) => panic!("thread panicked: {e:?}"),
+    }
+
+    let value = CHILD_PID.load(Ordering::Acquire);
+    assert_eq!(value, 12345, "CHILD_PID should reflect the value stored from another thread");
+
+    CHILD_PID.store(0, Ordering::Release);
 }
 
 // ── SIGTERM grace period: child responds to SIGTERM ─────────────────
@@ -1711,13 +1730,13 @@ fn sigterm_grace_period_child_exits_before_sigkill_needed() {
 
 #[test]
 fn grace_period_logic_skips_sigkill_when_pid_is_zero() {
-    let saved = CHILD_PID.load(Ordering::Relaxed);
-    CHILD_PID.store(0, Ordering::Relaxed);
+    let saved = CHILD_PID.load(Ordering::Acquire);
+    CHILD_PID.store(0, Ordering::Release);
 
-    let pid = CHILD_PID.load(Ordering::Relaxed);
+    let pid = CHILD_PID.load(Ordering::Acquire);
     let would_send_sigkill = pid != 0;
 
-    CHILD_PID.store(saved, Ordering::Relaxed);
+    CHILD_PID.store(saved, Ordering::Release);
 
     assert!(
         !would_send_sigkill,
@@ -1727,13 +1746,13 @@ fn grace_period_logic_skips_sigkill_when_pid_is_zero() {
 
 #[test]
 fn grace_period_logic_sends_sigkill_when_pid_is_nonzero() {
-    let saved = CHILD_PID.load(Ordering::Relaxed);
-    CHILD_PID.store(99999, Ordering::Relaxed);
+    let saved = CHILD_PID.load(Ordering::Acquire);
+    CHILD_PID.store(99999, Ordering::Release);
 
-    let pid = CHILD_PID.load(Ordering::Relaxed);
+    let pid = CHILD_PID.load(Ordering::Acquire);
     let would_send_sigkill = pid != 0;
 
-    CHILD_PID.store(saved, Ordering::Relaxed);
+    CHILD_PID.store(saved, Ordering::Release);
 
     assert!(
         would_send_sigkill,
