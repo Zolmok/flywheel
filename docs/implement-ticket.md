@@ -10,6 +10,8 @@ moves the ticket to "In Review".
 - `--owner <owner>` — GitHub Project owner, defaults to repo owner
 - `--ticket <number>` — (optional) specific issue number to implement;
   skips board selection when provided
+- `--base-branch <branch>` — (optional) branch to base off of; defaults
+  to `main`. Used by flywheel to chain PRs off previous implementations.
 
 Arguments may also be provided in natural-language form:
 `do ticket <number> on project <number> under <owner>`.
@@ -38,10 +40,11 @@ Arguments may also be provided in natural-language form:
 6. **Writes e2e tests** — if Playwright infrastructure exists, creates e2e
    tests covering every acceptance criterion.
 
-7. **Branches and commits** — pulls latest main, creates a feature branch
-   with `gh issue develop` (linking the issue in the Development sidebar),
-   stages relevant files, and commits with the format
-   `#<issue>: <summary>`.
+7. **Branches and commits** — pulls the latest base branch (defaults to
+   `main`, or the `--base-branch` value when chaining PRs), creates a
+   feature branch with `gh issue develop` (linking the issue in the
+   Development sidebar), stages relevant files, and commits with the
+   format `#<issue>: <summary>`.
 
 8. **Opens a PR** — pushes the branch, creates a pull request with
    `Resolves #<issue>` in the body. The `gh issue develop` link ensures
