@@ -307,20 +307,32 @@ fn prompt_injection_preamble() -> String {
     )
 }
 
-fn build_generate_tickets_prompt(config: &Config) -> String {
+fn project_items_preamble(json: &Option<String>) -> String {
+    match json {
+        Some(data) => format!(
+            "The project board data has already been fetched. Use the following JSON \
+             instead of calling `gh project item-list`:\n\
+             ```json\n{data}\n```\n\n"
+        ),
+        None => String::new(),
+    }
+}
+
+fn build_generate_tickets_prompt(config: &Config, cached_items: &Option<String>) -> String {
     format!(
-        "{}\n\n\
+        "{}{}\n\n\
          Use the Skill tool to invoke 'generate-tickets' with arguments \
          '--project {} --owner {}'. Output the complete report.",
+        project_items_preamble(cached_items),
         prompt_injection_preamble(),
         config.project,
         config.owner
     )
 }
 
-fn build_size_prioritize_prompt(config: &Config) -> String {
+fn build_size_prioritize_prompt(config: &Config, cached_items: &Option<String>) -> String {
     format!(
-        "You are managing a GitHub Project board. Examine all items in the \"Backlog\" \
+        "{}You are managing a GitHub Project board. Examine all items in the \"Backlog\" \
          column of project {} (owner: {}).\n\
          \n\
          For each item:\n\
@@ -339,13 +351,19 @@ fn build_size_prioritize_prompt(config: &Config) -> String {
          - `gh project item-edit --project-id <ID> --id <ITEM_ID> --field-id <FIELD_ID> ...`\n\
          \n\
          Output a summary table: issue number, title, size, priority rationale.",
-        config.project, config.owner, config.project, config.owner, config.project, config.owner
+        project_items_preamble(cached_items),
+        config.project,
+        config.owner,
+        config.project,
+        config.owner,
+        config.project,
+        config.owner
     )
 }
 
-fn build_move_to_ready_prompt(config: &Config) -> String {
+fn build_move_to_ready_prompt(config: &Config, cached_items: &Option<String>) -> String {
     format!(
-        "You are managing a GitHub Project board. Move the top {} items \
+        "{}You are managing a GitHub Project board. Move the top {} items \
          from the \"Backlog\" column to the \"Ready\" column in project {} \
          (owner: {}).\n\
          \n\
@@ -359,6 +377,7 @@ fn build_move_to_ready_prompt(config: &Config) -> String {
          If there are fewer than {} items in Backlog, move all of them.\n\
          \n\
          Output a summary of which items were moved.",
+        project_items_preamble(cached_items),
         config.batch_size,
         config.project,
         config.owner,
@@ -371,17 +390,22 @@ fn build_move_to_ready_prompt(config: &Config) -> String {
     )
 }
 
-fn build_implement_ticket_prompt(config: &Config, ticket: Option<&TicketInfo>) -> String {
+fn build_implement_ticket_prompt(
+    config: &Config,
+    ticket: Option<&TicketInfo>,
+    cached_items: &Option<String>,
+) -> String {
+    let items_preamble = project_items_preamble(cached_items);
     let preamble = prompt_injection_preamble();
     match ticket {
         Some(info) => format!(
-            "{preamble}\n\n\
+            "{items_preamble}{preamble}\n\n\
              Use the Skill tool to invoke 'implement-ticket' with arguments \
              'do ticket {} on project {} under {}'. Output the complete report.",
             info.number, config.project, config.owner
         ),
         None => format!(
-            "{preamble}\n\n\
+            "{items_preamble}{preamble}\n\n\
              Use the Skill tool to invoke 'implement-ticket' with arguments \
              '--project {} --owner {}'. Output the complete report.",
             config.project, config.owner
@@ -594,11 +618,12 @@ fn run_phase(
     phase: &Phase,
     config: &Config,
     extra_env: &HashMap<String, String>,
+    cached_items: &Option<String>,
 ) -> Option<PhaseResult> {
     match phase {
         Phase::CheckReady => {
-            let json = match fetch_project_items(config, extra_env) {
-                Some(j) => j,
+            let json = match cached_items {
+                Some(j) => j.clone(),
                 None => {
                     eprintln!("CheckReady: failed to fetch project items (API failure)");
                     return None;
@@ -624,8 +649,8 @@ fn run_phase(
             })
         }
         Phase::GenerateTickets => {
-            let json = match fetch_project_items(config, extra_env) {
-                Some(j) => j,
+            let json = match cached_items {
+                Some(j) => j.clone(),
                 None => {
                     eprintln!("GenerateTickets: failed to fetch project items (API failure)");
                     return None;
@@ -644,7 +669,7 @@ fn run_phase(
                     ticket: None,
                 });
             }
-            let prompt = build_generate_tickets_prompt(config);
+            let prompt = build_generate_tickets_prompt(config, cached_items);
             let quiet = !config.verbose;
             let result = spawn_and_capture(
                 &format!("{phase}"),
@@ -660,13 +685,12 @@ fn run_phase(
             })
         }
         Phase::SizePrioritize => {
-            let json = fetch_project_items(config, extra_env);
-            let needs_sizing = match json {
-                Some(ref j) => backlog_items_need_sizing(j),
+            let needs_sizing = match cached_items {
+                Some(j) => backlog_items_need_sizing(j),
                 None => true,
             };
-            let needs_prioritization = match json {
-                Some(ref j) => backlog_items_need_prioritization(j),
+            let needs_prioritization = match cached_items {
+                Some(j) => backlog_items_need_prioritization(j),
                 None => true,
             };
             if !needs_sizing && !needs_prioritization {
@@ -690,7 +714,7 @@ fn run_phase(
                     println!("Backlog items need prioritization (sizing already done)");
                 }
             }
-            let prompt = build_size_prioritize_prompt(config);
+            let prompt = build_size_prioritize_prompt(config, cached_items);
             let quiet = !config.verbose;
             let result = spawn_and_capture(
                 &format!("{phase}"),
@@ -706,8 +730,8 @@ fn run_phase(
             })
         }
         Phase::ImplementTicket => {
-            let json = match fetch_project_items(config, extra_env) {
-                Some(j) => j,
+            let json = match cached_items {
+                Some(j) => j.clone(),
                 None => {
                     eprintln!("ImplementTicket: failed to fetch project items, skipping");
                     return Some(PhaseResult {
@@ -743,7 +767,7 @@ fn run_phase(
                 }
                 None => format!("{phase}"),
             };
-            let prompt = build_implement_ticket_prompt(config, ticket.as_ref());
+            let prompt = build_implement_ticket_prompt(config, ticket.as_ref(), cached_items);
             let quiet = !config.verbose;
             let result = spawn_and_capture(
                 &label,
@@ -759,7 +783,7 @@ fn run_phase(
             })
         }
         Phase::MoveToReady => {
-            let prompt = build_move_to_ready_prompt(config);
+            let prompt = build_move_to_ready_prompt(config, cached_items);
             let quiet = !config.verbose;
             let result = spawn_and_capture(
                 &format!("{phase}"),
@@ -1126,15 +1150,20 @@ fn main() {
     };
     let mut cycle: u32 = 1;
     let mut pending_ticket: Option<TicketInfo> = None;
+    let mut cached_items: Option<String> = None;
 
     loop {
+        if cached_items.is_none() {
+            cached_items = fetch_project_items(&config, &direnv_env);
+        }
+
         let ticket_info = match phase {
             Phase::ImplementTicket => pending_ticket.take(),
             _ => None,
         };
         print_phase_banner(&phase, cycle, ticket_info.as_ref());
 
-        match run_phase(&phase, &config, &direnv_env) {
+        match run_phase(&phase, &config, &direnv_env, &cached_items) {
             None => {
                 eprintln!("=== Phase \"{}\" failed, stopping ===", phase);
                 break;
@@ -1150,6 +1179,17 @@ fn main() {
 
                 if config.verbose {
                     println!("--- {} complete, moving to {} ---", phase, next);
+                }
+
+                // Invalidate cached items after phases that mutate the board
+                match phase {
+                    Phase::GenerateTickets
+                    | Phase::SizePrioritize
+                    | Phase::MoveToReady
+                    | Phase::ImplementTicket => {
+                        cached_items = None;
+                    }
+                    Phase::CheckReady => {}
                 }
 
                 if phase == Phase::CheckReady {
