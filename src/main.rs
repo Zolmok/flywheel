@@ -872,7 +872,7 @@ fn spawn_and_capture(
 
     // Store child PID so the stdin-watcher can kill the process group
     let child_pid = child.id();
-    CHILD_PID.store(child_pid, Ordering::Relaxed);
+    CHILD_PID.store(child_pid, Ordering::Release);
 
     // Spawn a watchdog thread that kills the child process group after the
     // configured timeout.  The flag is set to true once the child exits
@@ -987,7 +987,7 @@ fn spawn_and_capture(
     let _ = stderr_handle.join();
 
     let status = child.wait();
-    CHILD_PID.store(0, Ordering::Relaxed);
+    CHILD_PID.store(0, Ordering::Release);
     child_done.store(true, Ordering::Relaxed);
 
     let timed_out = match watchdog_handle.join() {
@@ -1082,7 +1082,7 @@ fn main() {
                 Ok(0) => break,
                 Ok(_) => {
                     if buf[0] == 0x03 {
-                        let pid = CHILD_PID.load(Ordering::Relaxed);
+                        let pid = CHILD_PID.load(Ordering::Acquire);
                         if pid != 0 {
                             unsafe {
                                 libc::kill(-(pid as i32), libc::SIGTERM);
@@ -1091,11 +1091,11 @@ fn main() {
                             // gracefully before escalating to SIGKILL.
                             for _ in 0..30 {
                                 std::thread::sleep(std::time::Duration::from_millis(100));
-                                if CHILD_PID.load(Ordering::Relaxed) == 0 {
+                                if CHILD_PID.load(Ordering::Acquire) == 0 {
                                     break;
                                 }
                             }
-                            let pid = CHILD_PID.load(Ordering::Relaxed);
+                            let pid = CHILD_PID.load(Ordering::Acquire);
                             if pid != 0 {
                                 unsafe {
                                     libc::kill(-(pid as i32), libc::SIGKILL);
