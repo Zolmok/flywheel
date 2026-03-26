@@ -371,22 +371,43 @@ fn build_move_to_ready_prompt(config: &Config) -> String {
     )
 }
 
-fn build_implement_ticket_prompt(config: &Config, ticket: Option<&TicketInfo>) -> String {
+fn build_implement_ticket_prompt(
+    config: &Config,
+    ticket: Option<&TicketInfo>,
+    base_branch: Option<&str>,
+) -> String {
     let preamble = prompt_injection_preamble();
+    let base_arg = match base_branch {
+        Some(branch) => format!(" --base-branch {branch}"),
+        None => String::new(),
+    };
     match ticket {
         Some(info) => format!(
             "{preamble}\n\n\
              Use the Skill tool to invoke 'implement-ticket' with arguments \
-             'do ticket {} on project {} under {}'. Output the complete report.",
-            info.number, config.project, config.owner
+             'do ticket {} on project {} under {}{}'. Output the complete report.",
+            info.number, config.project, config.owner, base_arg
         ),
         None => format!(
             "{preamble}\n\n\
              Use the Skill tool to invoke 'implement-ticket' with arguments \
-             '--project {} --owner {}'. Output the complete report.",
-            config.project, config.owner
+             '--project {} --owner {}{}'. Output the complete report.",
+            config.project, config.owner, base_arg
         ),
     }
+}
+
+fn parse_branch_from_output(output: &str) -> Option<String> {
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("**Branch**:") {
+            let branch = trimmed.trim_start_matches("**Branch**:").trim();
+            if !branch.is_empty() {
+                return Some(branch.to_string());
+            }
+        }
+    }
+    None
 }
 
 struct TicketInfo {
@@ -588,12 +609,14 @@ fn fetch_project_items(config: &Config, extra_env: &HashMap<String, String>) -> 
 struct PhaseResult {
     next: Option<Phase>,
     ticket: Option<TicketInfo>,
+    branch: Option<String>,
 }
 
 fn run_phase(
     phase: &Phase,
     config: &Config,
     extra_env: &HashMap<String, String>,
+    base_branch: Option<&str>,
 ) -> Option<PhaseResult> {
     match phase {
         Phase::CheckReady => {
@@ -621,6 +644,7 @@ fn run_phase(
             Some(PhaseResult {
                 next: next_phase(phase, has_items, config.implement_only),
                 ticket,
+                branch: None,
             })
         }
         Phase::GenerateTickets => {
@@ -642,6 +666,7 @@ fn run_phase(
                 return Some(PhaseResult {
                     next: Some(Phase::SizePrioritize),
                     ticket: None,
+                    branch: None,
                 });
             }
             let prompt = build_generate_tickets_prompt(config);
@@ -657,6 +682,7 @@ fn run_phase(
             result.map(|_| PhaseResult {
                 next: next_phase(phase, false, config.implement_only),
                 ticket: None,
+                branch: None,
             })
         }
         Phase::SizePrioritize => {
@@ -679,6 +705,7 @@ fn run_phase(
                 return Some(PhaseResult {
                     next: Some(Phase::MoveToReady),
                     ticket: None,
+                    branch: None,
                 });
             }
             if config.verbose {
@@ -703,6 +730,7 @@ fn run_phase(
             result.map(|_| PhaseResult {
                 next: next_phase(phase, false, config.implement_only),
                 ticket: None,
+                branch: None,
             })
         }
         Phase::ImplementTicket => {
@@ -713,6 +741,7 @@ fn run_phase(
                     return Some(PhaseResult {
                         next: Some(Phase::CheckReady),
                         ticket: None,
+                        branch: None,
                     });
                 }
             };
@@ -734,6 +763,7 @@ fn run_phase(
                     return Some(PhaseResult {
                         next: Some(Phase::CheckReady),
                         ticket: None,
+                        branch: None,
                     });
                 }
             }
@@ -743,7 +773,7 @@ fn run_phase(
                 }
                 None => format!("{phase}"),
             };
-            let prompt = build_implement_ticket_prompt(config, ticket.as_ref());
+            let prompt = build_implement_ticket_prompt(config, ticket.as_ref(), base_branch);
             let quiet = !config.verbose;
             let result = spawn_and_capture(
                 &label,
@@ -753,9 +783,13 @@ fn run_phase(
                 quiet,
                 config.timeout,
             );
-            result.map(|_| PhaseResult {
-                next: next_phase(phase, false, config.implement_only),
-                ticket,
+            result.map(|output| {
+                let branch = parse_branch_from_output(&output);
+                PhaseResult {
+                    next: next_phase(phase, false, config.implement_only),
+                    ticket,
+                    branch,
+                }
             })
         }
         Phase::MoveToReady => {
@@ -772,6 +806,7 @@ fn run_phase(
             result.map(|_| PhaseResult {
                 next: next_phase(phase, false, config.implement_only),
                 ticket: None,
+                branch: None,
             })
         }
     }
@@ -1126,6 +1161,7 @@ fn main() {
     };
     let mut cycle: u32 = 1;
     let mut pending_ticket: Option<TicketInfo> = None;
+    let mut last_branch: Option<String> = None;
 
     loop {
         let ticket_info = match phase {
@@ -1134,7 +1170,7 @@ fn main() {
         };
         print_phase_banner(&phase, cycle, ticket_info.as_ref());
 
-        match run_phase(&phase, &config, &direnv_env) {
+        match run_phase(&phase, &config, &direnv_env, last_branch.as_deref()) {
             None => {
                 eprintln!("=== Phase \"{}\" failed, stopping ===", phase);
                 break;
@@ -1152,6 +1188,10 @@ fn main() {
                     println!("--- {} complete, moving to {} ---", phase, next);
                 }
 
+                if phase == Phase::ImplementTicket && result.branch.is_some() {
+                    last_branch = result.branch.clone();
+                }
+
                 if phase == Phase::CheckReady {
                     if config.verbose {
                         println!(
@@ -1164,6 +1204,9 @@ fn main() {
                     if config.max_cycles > 0 && cycle > config.max_cycles {
                         println!("=== Reached max cycles ({}) ===", config.max_cycles);
                         break;
+                    }
+                    if next == Phase::GenerateTickets {
+                        last_branch = None;
                     }
                 }
 
