@@ -744,16 +744,47 @@ fn count_ready_items_multiple_ready_items() {
 // ── parse_top_ready_ticket ──────────────────────────────────────────
 
 #[test]
-fn parse_top_ready_ticket_returns_first_ready_item() {
+fn parse_top_ready_ticket_selects_highest_priority() {
     let json = r#"{"items":[
-        {"status":"Backlog","title":"A","content":{"number":1}},
-        {"status":"Ready","title":"First ready","content":{"number":42}},
-        {"status":"Ready","title":"Second ready","content":{"number":43}}
-    ],"totalCount":3}"#;
+        {"status":"Backlog","title":"A","content":{"number":1},"priority":"P0"},
+        {"status":"Ready","title":"P2 task","content":{"number":42},"priority":"P2"},
+        {"status":"Ready","title":"P0 task","content":{"number":43},"priority":"P0"},
+        {"status":"Ready","title":"P1 task","content":{"number":44},"priority":"P1"}
+    ],"totalCount":4}"#;
     match parse_top_ready_ticket(json) {
         Some(info) => {
-            assert_eq!(info.number, 42);
-            assert_eq!(info.title, "First ready");
+            assert_eq!(info.number, 43);
+            assert_eq!(info.title, "P0 task");
+        }
+        None => panic!("expected Some, got None"),
+    }
+}
+
+#[test]
+fn parse_top_ready_ticket_no_priority_treated_as_lowest() {
+    let json = r#"{"items":[
+        {"status":"Ready","title":"No priority","content":{"number":10}},
+        {"status":"Ready","title":"P2 task","content":{"number":11},"priority":"P2"}
+    ],"totalCount":2}"#;
+    match parse_top_ready_ticket(json) {
+        Some(info) => {
+            assert_eq!(info.number, 11);
+            assert_eq!(info.title, "P2 task");
+        }
+        None => panic!("expected Some, got None"),
+    }
+}
+
+#[test]
+fn parse_top_ready_ticket_same_priority_picks_first_in_order() {
+    let json = r#"{"items":[
+        {"status":"Ready","title":"First P1","content":{"number":20},"priority":"P1"},
+        {"status":"Ready","title":"Second P1","content":{"number":21},"priority":"P1"}
+    ],"totalCount":2}"#;
+    match parse_top_ready_ticket(json) {
+        Some(info) => {
+            assert_eq!(info.number, 20);
+            assert_eq!(info.title, "First P1");
         }
         None => panic!("expected Some, got None"),
     }
