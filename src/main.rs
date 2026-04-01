@@ -60,6 +60,41 @@ impl Drop for RawMode {
     }
 }
 
+/// Async-signal-safe handler that restores the terminal and re-raises the
+/// signal so the process exits with the correct status/code.
+extern "C" fn restore_terminal_and_reraise(sig: libc::c_int) {
+    unsafe {
+        // Read the saved termios.  We cannot use Mutex::lock inside a
+        // signal handler (not async-signal-safe), but try_lock is fine —
+        // if it fails the mutex is held elsewhere and we just skip.
+        if let Ok(guard) = ORIGINAL_TERMIOS.try_lock()
+            && let Some(ref termios) = *guard
+        {
+            libc::tcsetattr(0, libc::TCSANOW, termios);
+        }
+
+        // Reset the signal to its default disposition and re-raise so the
+        // OS records the correct exit status (e.g. 128+signal).
+        libc::signal(sig, libc::SIG_DFL);
+        libc::raise(sig);
+    }
+}
+
+/// Register `restore_terminal_and_reraise` for SIGTERM and SIGHUP using
+/// `sigaction`.  Must be called **after** `RawMode::enter()` so that
+/// `ORIGINAL_TERMIOS` is populated.
+fn register_signal_handlers() {
+    unsafe {
+        let mut sa: libc::sigaction = std::mem::zeroed();
+        sa.sa_sigaction = restore_terminal_and_reraise as *const () as usize;
+        libc::sigemptyset(&mut sa.sa_mask);
+        sa.sa_flags = 0;
+
+        libc::sigaction(libc::SIGTERM, &sa, std::ptr::null_mut());
+        libc::sigaction(libc::SIGHUP, &sa, std::ptr::null_mut());
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 enum Phase {
     GenerateTickets,
@@ -1124,6 +1159,7 @@ fn main() {
     resolve_claude_profile(&mut direnv_env);
 
     let _raw_mode = RawMode::enter();
+    register_signal_handlers();
 
     // Spawn a stdin-watcher thread that reads for Ctrl-C bytes.
     // When detected, kill the child process group and exit.

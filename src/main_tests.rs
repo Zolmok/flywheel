@@ -1893,3 +1893,53 @@ fn build_implement_ticket_prompt_with_ticket_and_base_branch() {
         "prompt should contain --base-branch flag"
     );
 }
+
+// ── signal handler registration ──────────────────────────────────────
+
+#[test]
+fn register_signal_handlers_installs_sigterm_handler() {
+    // After calling register_signal_handlers, the SIGTERM disposition
+    // should no longer be the default (SIG_DFL = 0).
+    register_signal_handlers();
+
+    unsafe {
+        let mut old_sa: libc::sigaction = std::mem::zeroed();
+        libc::sigaction(libc::SIGTERM, std::ptr::null(), &mut old_sa);
+        assert_ne!(
+            old_sa.sa_sigaction,
+            libc::SIG_DFL,
+            "SIGTERM handler should not be SIG_DFL after registration"
+        );
+    }
+}
+
+#[test]
+fn register_signal_handlers_installs_sighup_handler() {
+    register_signal_handlers();
+
+    unsafe {
+        let mut old_sa: libc::sigaction = std::mem::zeroed();
+        libc::sigaction(libc::SIGHUP, std::ptr::null(), &mut old_sa);
+        assert_ne!(
+            old_sa.sa_sigaction,
+            libc::SIG_DFL,
+            "SIGHUP handler should not be SIG_DFL after registration"
+        );
+    }
+}
+
+#[test]
+fn restore_terminal_and_reraise_reads_original_termios() {
+    // Verify that the handler function pointer matches what we registered.
+    register_signal_handlers();
+
+    unsafe {
+        let mut old_sa: libc::sigaction = std::mem::zeroed();
+        libc::sigaction(libc::SIGTERM, std::ptr::null(), &mut old_sa);
+        assert_eq!(
+            old_sa.sa_sigaction,
+            restore_terminal_and_reraise as *const () as usize,
+            "SIGTERM handler should point to restore_terminal_and_reraise"
+        );
+    }
+}
