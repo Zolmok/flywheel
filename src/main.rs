@@ -415,6 +415,15 @@ struct TicketInfo {
     title: String,
 }
 
+fn priority_rank(priority: Option<&str>) -> u8 {
+    match priority {
+        Some("P0") => 0,
+        Some("P1") => 1,
+        Some("P2") => 2,
+        _ => 3,
+    }
+}
+
 #[allow(clippy::question_mark)]
 fn parse_top_ready_ticket(json: &str) -> Option<TicketInfo> {
     let value = match serde_json::from_str::<serde_json::Value>(json) {
@@ -429,6 +438,7 @@ fn parse_top_ready_ticket(json: &str) -> Option<TicketInfo> {
         Some(arr) => arr,
         None => return None,
     };
+    let mut ready_items: Vec<(u8, u64, String)> = Vec::new();
     for item in items {
         let status = match item.get("status") {
             Some(s) => match s.as_str() {
@@ -457,9 +467,17 @@ fn parse_top_ready_ticket(json: &str) -> Option<TicketInfo> {
             },
             None => continue,
         };
-        return Some(TicketInfo { number, title });
+        let priority = match item.get("priority") {
+            Some(p) => p.as_str(),
+            None => None,
+        };
+        ready_items.push((priority_rank(priority), number, title));
     }
-    None
+    ready_items.sort_by_key(|item| item.0);
+    ready_items
+        .into_iter()
+        .next()
+        .map(|(_, number, title)| TicketInfo { number, title })
 }
 
 fn count_backlog_items(json: &str) -> usize {
