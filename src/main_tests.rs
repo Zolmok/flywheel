@@ -1937,9 +1937,58 @@ fn restore_terminal_and_reraise_reads_original_termios() {
         let mut old_sa: libc::sigaction = std::mem::zeroed();
         libc::sigaction(libc::SIGTERM, std::ptr::null(), &mut old_sa);
         assert_eq!(
-            old_sa.sa_sigaction,
-            restore_terminal_and_reraise as *const () as usize,
+            old_sa.sa_sigaction, restore_terminal_and_reraise as *const () as usize,
             "SIGTERM handler should point to restore_terminal_and_reraise"
         );
+    }
+}
+
+// ── PID i32 conversion safety ──────────────────────────────────────
+
+#[test]
+fn pid_try_from_valid_pid_succeeds() {
+    let pid: u32 = 1234;
+    match i32::try_from(pid) {
+        Ok(pid_i32) => {
+            assert_eq!(pid_i32, 1234);
+        }
+        Err(e) => {
+            panic!("expected Ok(1234), got Err: {e}");
+        }
+    }
+}
+
+#[test]
+fn pid_try_from_max_valid_pid_succeeds() {
+    let pid: u32 = i32::MAX as u32;
+    match i32::try_from(pid) {
+        Ok(pid_i32) => {
+            assert_eq!(pid_i32, i32::MAX);
+        }
+        Err(e) => {
+            panic!("expected Ok(i32::MAX), got Err: {e}");
+        }
+    }
+}
+
+#[test]
+fn pid_try_from_overflow_pid_fails() {
+    let pid: u32 = (i32::MAX as u32) + 1;
+    match i32::try_from(pid) {
+        Ok(val) => {
+            panic!("expected Err for PID {pid}, got Ok({val})");
+        }
+        Err(_) => {}
+    }
+}
+
+#[test]
+fn pid_try_from_u32_max_fails() {
+    let pid: u32 = u32::MAX;
+    match i32::try_from(pid) {
+        Ok(val) => {
+            panic!("expected Err for PID {pid}, got Ok({val})");
+        }
+        Err(_) => {}
     }
 }

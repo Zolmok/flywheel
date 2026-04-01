@@ -1173,21 +1173,39 @@ fn main() {
                     if buf[0] == 0x03 {
                         let pid = CHILD_PID.load(Ordering::Acquire);
                         if pid != 0 {
-                            unsafe {
-                                libc::kill(-(pid as i32), libc::SIGTERM);
-                            }
-                            // Wait up to 3 seconds for the child to exit
-                            // gracefully before escalating to SIGKILL.
-                            for _ in 0..30 {
-                                std::thread::sleep(std::time::Duration::from_millis(100));
-                                if CHILD_PID.load(Ordering::Acquire) == 0 {
-                                    break;
+                            match i32::try_from(pid) {
+                                Ok(pid_i32) => {
+                                    unsafe {
+                                        libc::kill(-pid_i32, libc::SIGTERM);
+                                    }
+                                    // Wait up to 3 seconds for the child to exit
+                                    // gracefully before escalating to SIGKILL.
+                                    for _ in 0..30 {
+                                        std::thread::sleep(std::time::Duration::from_millis(100));
+                                        if CHILD_PID.load(Ordering::Acquire) == 0 {
+                                            break;
+                                        }
+                                    }
+                                    let pid2 = CHILD_PID.load(Ordering::Acquire);
+                                    if pid2 != 0 {
+                                        match i32::try_from(pid2) {
+                                            Ok(pid2_i32) => unsafe {
+                                                libc::kill(-pid2_i32, libc::SIGKILL);
+                                            },
+                                            Err(_) => {
+                                                eprintln!(
+                                                    "child PID {} exceeds i32::MAX, cannot send SIGKILL",
+                                                    pid2
+                                                );
+                                            }
+                                        }
+                                    }
                                 }
-                            }
-                            let pid = CHILD_PID.load(Ordering::Acquire);
-                            if pid != 0 {
-                                unsafe {
-                                    libc::kill(-(pid as i32), libc::SIGKILL);
+                                Err(_) => {
+                                    eprintln!(
+                                        "child PID {} exceeds i32::MAX, cannot send SIGTERM",
+                                        pid
+                                    );
                                 }
                             }
                         }
