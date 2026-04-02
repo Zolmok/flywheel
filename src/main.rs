@@ -450,6 +450,32 @@ struct TicketInfo {
     title: String,
 }
 
+#[derive(Deserialize)]
+struct ProjectItemContent {
+    number: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct ProjectItem {
+    status: Option<String>,
+    title: Option<String>,
+    content: Option<ProjectItemContent>,
+    priority: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ProjectItemList {
+    #[serde(default)]
+    items: Vec<ProjectItem>,
+}
+
+fn parse_project_items(json: &str) -> Vec<ProjectItem> {
+    match serde_json::from_str::<ProjectItemList>(json) {
+        Ok(list) => list.items,
+        Err(_) => Vec::new(),
+    }
+}
+
 fn priority_rank(priority: Option<&str>) -> u8 {
     match priority {
         Some("P0") => 0,
@@ -459,55 +485,23 @@ fn priority_rank(priority: Option<&str>) -> u8 {
     }
 }
 
-#[allow(clippy::question_mark)]
 fn parse_top_ready_ticket(json: &str) -> Option<TicketInfo> {
-    let value = match serde_json::from_str::<serde_json::Value>(json) {
-        Ok(v) => v,
-        Err(_) => return None,
-    };
-    let items_value = match value.get("items") {
-        Some(v) => v,
-        None => return None,
-    };
-    let items = match items_value.as_array() {
-        Some(arr) => arr,
-        None => return None,
-    };
-    let mut ready_items: Vec<(u8, u64, String)> = Vec::new();
-    for item in items {
-        let status = match item.get("status") {
-            Some(s) => match s.as_str() {
-                Some(s) => s,
-                None => continue,
-            },
-            None => continue,
-        };
-        if status != "Ready" {
-            continue;
-        }
-        let number = match item.get("content") {
-            Some(content) => match content.get("number") {
-                Some(n) => match n.as_u64() {
-                    Some(n) => n,
-                    None => continue,
-                },
-                None => continue,
-            },
-            None => continue,
-        };
-        let title = match item.get("title") {
-            Some(t) => match t.as_str() {
-                Some(t) => t.to_string(),
-                None => continue,
-            },
-            None => continue,
-        };
-        let priority = match item.get("priority") {
-            Some(p) => p.as_str(),
-            None => None,
-        };
-        ready_items.push((priority_rank(priority), number, title));
-    }
+    let items = parse_project_items(json);
+    let mut ready_items: Vec<(u8, u64, String)> = items
+        .iter()
+        .filter(|item| item.status.as_deref() == Some("Ready"))
+        .filter_map(|item| {
+            let number = item.content.as_ref().and_then(|c| c.number);
+            let title = item.title.as_deref();
+            match (number, title) {
+                (Some(n), Some(t)) => {
+                    let rank = priority_rank(item.priority.as_deref());
+                    Some((rank, n, t.to_string()))
+                }
+                _ => None,
+            }
+        })
+        .collect();
     ready_items.sort_by_key(|item| item.0);
     ready_items
         .into_iter()
@@ -516,25 +510,10 @@ fn parse_top_ready_ticket(json: &str) -> Option<TicketInfo> {
 }
 
 fn count_backlog_items(json: &str) -> usize {
-    match serde_json::from_str::<serde_json::Value>(json) {
-        Ok(value) => match value.get("items") {
-            Some(items) => match items.as_array() {
-                Some(arr) => arr
-                    .iter()
-                    .filter(|item| match item.get("status") {
-                        Some(status) => match status.as_str() {
-                            Some(s) => s == "Backlog",
-                            None => false,
-                        },
-                        None => false,
-                    })
-                    .count(),
-                None => 0,
-            },
-            None => 0,
-        },
-        Err(_) => 0,
-    }
+    parse_project_items(json)
+        .iter()
+        .filter(|item| item.status.as_deref() == Some("Backlog"))
+        .count()
 }
 
 fn backlog_items_need_sizing(json: &str) -> bool {
@@ -600,25 +579,10 @@ fn backlog_items_need_prioritization(json: &str) -> bool {
 }
 
 fn count_ready_items(json: &str) -> usize {
-    match serde_json::from_str::<serde_json::Value>(json) {
-        Ok(value) => match value.get("items") {
-            Some(items) => match items.as_array() {
-                Some(arr) => arr
-                    .iter()
-                    .filter(|item| match item.get("status") {
-                        Some(status) => match status.as_str() {
-                            Some(s) => s == "Ready",
-                            None => false,
-                        },
-                        None => false,
-                    })
-                    .count(),
-                None => 0,
-            },
-            None => 0,
-        },
-        Err(_) => 0,
-    }
+    parse_project_items(json)
+        .iter()
+        .filter(|item| item.status.as_deref() == Some("Ready"))
+        .count()
 }
 
 fn fetch_project_items(config: &Config, extra_env: &HashMap<String, String>) -> Option<String> {
