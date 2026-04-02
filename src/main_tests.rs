@@ -1937,8 +1937,7 @@ fn restore_terminal_and_reraise_reads_original_termios() {
         let mut old_sa: libc::sigaction = std::mem::zeroed();
         libc::sigaction(libc::SIGTERM, std::ptr::null(), &mut old_sa);
         assert_eq!(
-            old_sa.sa_sigaction,
-            restore_terminal_and_reraise as *const () as usize,
+            old_sa.sa_sigaction, restore_terminal_and_reraise as *const () as usize,
             "SIGTERM handler should point to restore_terminal_and_reraise"
         );
     }
